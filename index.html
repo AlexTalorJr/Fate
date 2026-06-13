@@ -6,121 +6,125 @@
 <title>PHASE</title>
 <style>
   :root{
-    --void:#070912;
-    --deep:#0c1326;
-    --ink:#e8ecff;
-    --dim:#7d86b8;
-    --cyan:#27e0d0;
-    --magenta:#ff4d8d;
-    --amber:#ffc14d;
-    --violet:#9a6bff;
+    --void:#05060f; --deep:#0c1326; --ink:#eef1ff; --dim:#7d86b8;
+    --cyan:#27e0d0; --magenta:#ff4d8d; --amber:#ffc14d; --violet:#9a6bff;
     --line:rgba(120,140,220,.14);
   }
-  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none}
   html,body{height:100%;overflow:hidden;background:var(--void);color:var(--ink);
-    font-family:"DM Mono",ui-monospace,"SF Mono",Menlo,monospace;}
-  #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
-  canvas{display:block;touch-action:none;}
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
+  #stage{position:fixed;inset:0}
+  canvas{display:block;touch-action:none;position:absolute;inset:0}
 
-  /* HUD */
   .hud{position:fixed;left:0;right:0;top:0;padding:14px 18px;display:flex;
     justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:5;
-    font-variant-numeric:tabular-nums;}
-  .stat{display:flex;flex-direction:column;gap:2px}
+    font-variant-numeric:tabular-nums}
+  .stat{display:flex;flex-direction:column;gap:3px}
   .stat .k{font-size:10px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
-  .stat .v{font-size:22px;font-weight:500;letter-spacing:.02em;line-height:1}
-  .stat.right{align-items:flex-end;text-align:right}
-  #combo .v{color:var(--amber)}
-  #lvl .v{color:var(--cyan)}
+  .stat .v{font-size:22px;font-weight:600;letter-spacing:.02em;line-height:1}
+  .stat.c{align-items:center} .stat.r{align-items:flex-end;text-align:right}
+  #lvl .v{color:var(--cyan)} #combo .v{color:var(--amber)}
+  #combo.hot .v{text-shadow:0 0 18px var(--amber)}
+  .chainbar{height:3px;width:60px;background:rgba(255,193,77,.18);border-radius:2px;margin-top:5px;overflow:hidden}
+  .chainfill{height:100%;width:100%;background:var(--amber);transition:width .1s linear}
 
-  /* phase meter (the resource you spend placing sources) */
-  .charge-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;width:min(520px,78vw);
-    z-index:5;pointer-events:none}
-  .charge-bar{height:8px;border-radius:6px;background:rgba(120,140,220,.12);overflow:hidden;
-    border:1px solid var(--line)}
-  .charge-fill{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--cyan));
-    transition:width .08s linear}
-  .charge-lab{display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;
-    letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+  .charge-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;width:min(560px,82vw);z-index:5;pointer-events:none}
+  .charge-bar{height:9px;border-radius:6px;background:rgba(120,140,220,.12);overflow:hidden;border:1px solid var(--line);position:relative}
+  .charge-fill{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--cyan));transition:width .08s linear}
+  .charge-over{position:absolute;inset:0;width:0;background:linear-gradient(90deg,var(--amber),var(--magenta));opacity:0;transition:opacity .2s}
+  .charge-lab{display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+  #overlab{color:var(--amber)}
 
-  /* overlays */
   .scrim{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
-    background:radial-gradient(120% 120% at 50% 40%,rgba(12,19,38,.82),rgba(7,9,18,.96));
-    backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .45s ease}
+    background:radial-gradient(120% 120% at 50% 35%,rgba(12,19,38,.85),rgba(5,6,15,.97));
+    backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .45s ease}
   .scrim.show{opacity:1;pointer-events:auto}
-  .panel{max-width:560px;width:88%;text-align:center;padding:8px}
-  .title{font-size:clamp(54px,13vw,128px);font-weight:600;letter-spacing:.14em;line-height:.9;
-    background:linear-gradient(120deg,var(--cyan),var(--violet) 55%,var(--magenta));
+  .panel{max-width:600px;width:90%;text-align:center;padding:8px}
+  .title{font-size:clamp(56px,14vw,140px);font-weight:700;letter-spacing:.14em;line-height:.88;
+    background:linear-gradient(120deg,var(--cyan),var(--violet) 50%,var(--magenta));
     -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px}
-  .tag{font-size:12px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase;margin-bottom:26px}
-  .lede{font-size:14px;line-height:1.85;color:#c2caf2;margin:0 auto 30px;max-width:430px;text-align:left}
-  .lede b{color:var(--cyan);font-weight:500}
-  .lede em{color:var(--amber);font-style:normal}
-  .btn{pointer-events:auto;cursor:pointer;border:1px solid var(--cyan);background:transparent;
-    color:var(--cyan);font-family:inherit;font-size:13px;letter-spacing:.32em;text-transform:uppercase;
-    padding:15px 40px;border-radius:40px;transition:.18s;font-weight:500}
-  .btn:hover{background:var(--cyan);color:var(--void);box-shadow:0 0 32px rgba(39,224,208,.5)}
+  .tag{font-size:12px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase;margin-bottom:24px}
+  .lede{font-size:13.5px;line-height:1.9;color:#c2caf2;margin:0 auto 26px;max-width:440px;text-align:left}
+  .lede b{color:var(--cyan);font-weight:600} .lede em{color:var(--amber);font-style:normal}
+  .lede u{color:var(--magenta);text-decoration:none}
+  .btn{pointer-events:auto;cursor:pointer;border:1px solid var(--cyan);background:transparent;color:var(--cyan);
+    font-family:inherit;font-size:13px;letter-spacing:.32em;text-transform:uppercase;padding:15px 42px;border-radius:40px;transition:.18s;font-weight:600}
+  .btn:hover{background:var(--cyan);color:var(--void);box-shadow:0 0 36px rgba(39,224,208,.55)}
   .btn:active{transform:scale(.96)}
-  .row{display:flex;gap:30px;justify-content:center;margin-bottom:28px;flex-wrap:wrap}
-  .big{font-size:13px;letter-spacing:.2em}
-  .big .n{display:block;font-size:38px;letter-spacing:0;margin-top:4px;color:var(--ink)}
+  .row{display:flex;gap:34px;justify-content:center;margin-bottom:24px;flex-wrap:wrap}
+  .big{font-size:12px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+  .big .n{display:block;font-size:36px;letter-spacing:0;margin-top:5px;color:var(--ink);font-weight:600}
   .big.hl .n{color:var(--amber)}
-  .fine{font-size:11px;color:var(--dim);letter-spacing:.12em;line-height:1.7;margin-top:22px}
+  .fine{font-size:11px;color:var(--dim);letter-spacing:.1em;line-height:1.7;margin-top:18px}
   .pulse{animation:pulse 2.6s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
-  .keyhint{position:fixed;left:18px;bottom:22px;z-index:5;font-size:10px;letter-spacing:.14em;
-    color:var(--dim);pointer-events:none;line-height:1.7;text-transform:uppercase;opacity:.7}
-  .flash{position:fixed;inset:0;z-index:4;pointer-events:none;background:var(--magenta);opacity:0}
-  @media (max-width:540px){.keyhint{display:none}.row{gap:20px}}
+  @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+  .unlocks{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:6px auto 22px;max-width:460px}
+  .chip{font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:7px 12px;border-radius:20px;border:1px solid var(--line);color:var(--dim)}
+  .chip.on{color:var(--cyan);border-color:var(--cyan)}
+  .chip.new{color:var(--amber);border-color:var(--amber);animation:pulse 1.4s ease-in-out infinite}
+  .rank{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--violet);margin-bottom:14px}
+
+  .keyhint{position:fixed;left:18px;bottom:54px;z-index:5;font-size:10px;letter-spacing:.13em;color:var(--dim);
+    pointer-events:none;line-height:1.8;text-transform:uppercase;opacity:.65}
+  .flash{position:fixed;inset:0;z-index:4;pointer-events:none;opacity:0}
+  .toast{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%);z-index:6;pointer-events:none;text-align:center;opacity:0}
+  .toast .t1{font-size:clamp(28px,7vw,64px);font-weight:700;letter-spacing:.1em;line-height:1}
+  .toast .t2{font-size:12px;letter-spacing:.4em;text-transform:uppercase;color:var(--dim);margin-top:8px}
+  @media (max-width:560px){.keyhint{display:none}.row{gap:22px}}
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="c"></canvas></div>
+<div id="stage">
+  <canvas id="cField"></canvas>
+  <canvas id="c"></canvas>
+</div>
 
 <div class="hud">
   <div class="stat" id="lvl"><span class="k">Strata</span><span class="v" id="lvlv">1</span></div>
-  <div class="stat" style="align-items:center"><span class="k">Score</span><span class="v" id="scorev">0</span></div>
-  <div class="stat right" id="combo"><span class="k">Chain</span><span class="v" id="combov">×1</span></div>
+  <div class="stat c"><span class="k">Score</span><span class="v" id="scorev">0</span></div>
+  <div class="stat r" id="combo"><span class="k">Chain</span><span class="v" id="combov">×1</span>
+    <div class="chainbar"><div class="chainfill" id="chainfill"></div></div></div>
 </div>
 
 <div class="charge-wrap">
-  <div class="charge-lab"><span>Phase charge</span><span id="srcleft">ready</span></div>
-  <div class="charge-bar"><div class="charge-fill" id="charge"></div></div>
+  <div class="charge-lab"><span>Phase charge</span><span id="overlab"></span></div>
+  <div class="charge-bar"><div class="charge-fill" id="charge"></div><div class="charge-over" id="chargeOver"></div></div>
 </div>
 
-<div class="keyhint">Click / tap — drop a source · Space — pulse all · they ripple on their own</div>
+<div class="keyhint">Click — drop source · Space — re-phase burst · Hold Shift — overcharge (2× risk)</div>
 
 <div class="flash" id="flash"></div>
+<div class="toast" id="toast"><div class="t1" id="toastT1"></div><div class="t2" id="toastT2"></div></div>
 
-<!-- INTRO -->
 <div class="scrim show" id="intro">
   <div class="panel">
     <div class="title">PHASE</div>
-    <div class="tag">an interference field</div>
+    <div class="tag">an interference field · v2</div>
     <div class="lede">
-      You don't shoot. You drop <b>ripple sources</b> onto the field.
-      Each one sends rings outward forever.<br><br>
-      Where two crests <b>cross</b>, a bright <b>focus</b> ignites for an instant —
-      that's your only weapon. Aim by predicting <em>where fronts will meet</em>,
-      not where things are now.<br><br>
-      Land focuses on the fading <b>marks</b> before they go dark.
-      Chain them and the field quickens. Miss, and the noise rises.
+      You don't shoot. You drop <b>ripple sources</b>. Each sends rings outward.
+      Where two crests <b>cross in phase</b>, a <b>focus</b> ignites — your only weapon.<br><br>
+      Aim by predicting <em>where fronts will meet</em>. Land focuses on fading <b>marks</b>
+      before they go dark. <em>Chain</em> them: the multiplier climbs and never wants to stop.<br><br>
+      <u>Crits</u> strike at random for triple. Hold <u>Shift</u> to overcharge — double score,
+      double the cost of a miss. Rare <u>SUPERPOSITION</u> marks pay enormous if you nail them clean.
     </div>
     <button class="btn pulse" id="startBtn">Enter the field</button>
-    <div class="fine">think like waves — patience beats reflex</div>
+    <div class="fine">patience beats reflex · best run is remembered</div>
   </div>
 </div>
 
-<!-- GAMEOVER -->
 <div class="scrim" id="over">
   <div class="panel">
-    <div class="title" style="font-size:clamp(40px,10vw,92px)">DECOHERED</div>
-    <div class="tag">the field lost phase</div>
+    <div class="rank" id="rankLine"></div>
+    <div class="title" style="font-size:clamp(40px,10vw,96px)">DECOHERED</div>
+    <div class="tag" id="overTag">the field lost phase</div>
     <div class="row">
       <div class="big"><span>Score</span><span class="n" id="finalScore">0</span></div>
       <div class="big hl"><span>Best</span><span class="n" id="bestScore">0</span></div>
       <div class="big"><span>Strata</span><span class="n" id="finalLvl">1</span></div>
+      <div class="big"><span>Peak chain</span><span class="n" id="finalChain">1</span></div>
     </div>
+    <div class="unlocks" id="unlockList"></div>
     <button class="btn" id="againBtn">Re-enter</button>
     <div class="fine" id="overTip"></div>
   </div>
@@ -128,535 +132,427 @@
 
 <script>
 "use strict";
+const PHASE_CORE=(function(root){
+const TONES=[
+  {name:"cyan",rgb:[39,224,208],freq:392},
+  {name:"magenta",rgb:[255,77,141],freq:523},
+  {name:"amber",rgb:[255,193,77],freq:659},
+  {name:"violet",rgb:[154,107,255],freq:784},
+];
+const CFG={FIELD_SPEED:130,SOURCE_COST:0.30,SOURCE_LIFE:4.2,WAVELENGTH:62,RING_WIDTH:46,
+  FRONT_BAND:30,CHARGE_REGEN:0.42,CHARGE_REFUND:0.20,HEALTH_REGEN:0.018,HEALTH_HIT:0.16,
+  HEALTH_REWARD:0.04,CHAIN_WINDOW:2.6,CRIT_CHANCE:0.16,CRIT_MULT:3,OVERCHARGE_MULT:2.2};
+function hypot(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);}
+function speedForLevel(l){return CFG.FIELD_SPEED*(1+(l-1)*0.05);}
+function fieldAt(px,py,t,sources,absorbers,level){
+  let sum=0;const spd=speedForLevel(level);const k=2*Math.PI/CFG.WAVELENGTH;const rw=CFG.RING_WIDTH;
+  const W=root.__FIELD_W||1280,H=root.__FIELD_H||720;
+  for(let s of sources){const age=t-s.born;if(age<0)continue;
+    const dist=hypot(px,py,s.x,s.y);const dr=dist-age*spd;
+    if(dr>10||dr<-260)continue;
+    const env=Math.exp(-(dr*dr)/(2*rw*rw));const wave=Math.cos(k*dr);
+    const decay=Math.max(0,1-age/CFG.SOURCE_LIFE)*Math.max(0,1-dist/Math.max(W,H));
+    sum+=wave*env*decay;}
+  for(let a of absorbers){const d=hypot(px,py,a.x,a.y);if(d<a.r)sum*=Math.max(0,d/a.r);}
+  return sum;}
+function evalMark(m,t,sources,level){
+  if(m.hit)return null;const spd=speedForLevel(level);
+  let contributors=0,amp=0,sameTone=0;
+  for(let s of sources){const age=t-s.born;if(age<0)continue;
+    const dr=hypot(m.x,m.y,s.x,s.y)-age*spd;
+    if(Math.abs(dr)<CFG.FRONT_BAND){const decay=Math.max(0,1-age/CFG.SOURCE_LIFE);
+      if(decay>0.12){contributors++;amp+=Math.cos(2*Math.PI*dr/CFG.WAVELENGTH)*decay;if(s.tone===m.tone)sameTone++;}}}
+  if(contributors>=2&&amp>1.05&&sameTone>=1)return{contributors,pure:(sameTone===contributors),amp};
+  return null;}
+function isNearMiss(m,t,sources,level){
+  if(m.hit)return false;const spd=speedForLevel(level);let contributors=0,amp=0;
+  for(let s of sources){const age=t-s.born;if(age<0)continue;
+    const dr=hypot(m.x,m.y,s.x,s.y)-age*spd;
+    if(Math.abs(dr)<CFG.FRONT_BAND){const decay=Math.max(0,1-age/CFG.SOURCE_LIFE);
+      if(decay>0.12){contributors++;amp+=Math.cos(2*Math.PI*dr/CFG.WAVELENGTH)*decay;}}}
+  return(contributors>=2&&amp<=1.05&&amp>0.2)||(contributors===1&&amp>0.6);}
+function scoreHit(hit,chain,overcharge,crit){
+  let g=(90+hit.contributors*40);if(hit.pure)g*=1.6;g*=chain;
+  if(overcharge)g*=CFG.OVERCHARGE_MULT;if(crit)g*=CFG.CRIT_MULT;return Math.round(g);}
+function levelThreshold(l){return l*900+l*l*120;}
+function tonesAtLevel(l){return Math.min(TONES.length,1+Math.floor((l-1)/3));}
+function markLife(l){return Math.max(3.0,7.5-(l-1)*0.28);}
+function spawnEvery(l){return Math.max(0.85,2.6-(l-1)*0.13);}
+return{TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,levelThreshold,tonesAtLevel,markLife,spawnEvery};
+})(window);
+</script>
+
+<script>
+"use strict";
 (()=>{
-const canvas=document.getElementById("c"), ctx=canvas.getContext("2d");
+const C=PHASE_CORE;
+const fieldCv=document.getElementById("cField"), fctx=fieldCv.getContext("2d");
+const cv=document.getElementById("c"), ctx=cv.getContext("2d");
 const $=id=>document.getElementById(id);
 let W=0,H=0,DPR=1;
 
 function resize(){
   DPR=Math.min(window.devicePixelRatio||1,2);
-  W=window.innerWidth; H=window.innerHeight;
-  canvas.width=W*DPR; canvas.height=H*DPR;
-  canvas.style.width=W+"px"; canvas.style.height=H+"px";
+  W=window.innerWidth;H=window.innerHeight;
+  window.__FIELD_W=W; window.__FIELD_H=H;
+  for(const cc of [cv,fieldCv]){cc.width=W*DPR;cc.height=H*DPR;cc.style.width=W+"px";cc.style.height=H+"px";}
   ctx.setTransform(DPR,0,0,DPR,0,0);
 }
 window.addEventListener("resize",resize); resize();
 
-// ---------- tiny audio (web audio, no files) ----------
-let AC=null;
-function audio(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} } return AC; }
+// ---------- audio ----------
+let AC=null,master=null;
+function audio(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();
+  master=AC.createGain();master.gain.value=0.9;master.connect(AC.destination);}catch(e){}}return AC;}
 function blip(freq,dur=0.12,type="sine",gain=0.18){
-  const a=audio(); if(!a) return;
-  const o=a.createOscillator(), g=a.createGain();
-  o.type=type; o.frequency.value=freq;
-  o.connect(g); g.connect(a.destination);
-  const t=a.currentTime;
-  g.gain.setValueAtTime(0,t);
-  g.gain.linearRampToValueAtTime(gain,t+0.012);
-  g.gain.exponentialRampToValueAtTime(0.0008,t+dur);
-  o.start(t); o.stop(t+dur+0.02);
-}
-function chord(base,n){ const ratios=[1,1.5,2,2.5,3]; for(let i=0;i<n&&i<5;i++) setTimeout(()=>blip(base*ratios[i],0.16,"triangle",0.12),i*38); }
+  const a=audio();if(!a)return;const o=a.createOscillator(),g=a.createGain();
+  o.type=type;o.frequency.value=freq;o.connect(g);g.connect(master);
+  const t=a.currentTime;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(gain,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0008,t+dur);o.start(t);o.stop(t+dur+0.02);}
+function chord(base,n,kind){const r=[1,1.5,2,2.5,3,4];for(let i=0;i<n&&i<r.length;i++)
+  setTimeout(()=>blip(base*r[i],0.18,kind||"triangle",0.11),i*34);}
+function bass(freq,dur){const a=audio();if(!a)return;const o=a.createOscillator(),g=a.createGain();
+  o.type="sine";o.frequency.value=freq;o.connect(g);g.connect(master);const t=a.currentTime;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur+0.05);}
 
-// ---------- palette per tone ----------
-const TONES=[
-  {name:"cyan", c:"#27e0d0", rgb:[39,224,208], freq:392},
-  {name:"magenta", c:"#ff4d8d", rgb:[255,77,141], freq:523},
-  {name:"amber", c:"#ffc14d", rgb:[255,193,77], freq:659},
+// ---------- meta / persistence ----------
+const META={
+  best:+(localStorage.getItem("phase_best")||0),
+  peakLevel:+(localStorage.getItem("phase_peaklvl")||1),
+  runs:+(localStorage.getItem("phase_runs")||0),
+};
+const RANKS=[[0,"Drifter"],[3000,"Tuner"],[9000,"Resonant"],[20000,"Phase-walker"],[45000,"Standing Wave"],[90000,"Coherence"]];
+function rankFor(score){let r=RANKS[0][1];for(const[s,n]of RANKS)if(score>=s)r=n;return r;}
+const UNLOCKS=[
+  {lvl:1,key:"core",label:"Foci"},
+  {lvl:2,key:"tone2",label:"2nd tone"},
+  {lvl:4,key:"moving",label:"Moving marks"},
+  {lvl:4,key:"tone3",label:"3rd tone"},
+  {lvl:5,key:"absorb",label:"Voids"},
+  {lvl:7,key:"super",label:"Superposition"},
+  {lvl:7,key:"tone4",label:"4th tone"},
+  {lvl:10,key:"twin",label:"Twin marks"},
 ];
+function unlockedAt(peak){return UNLOCKS.filter(u=>peak>=u.lvl).map(u=>u.key);}
 
 // ---------- game state ----------
-const G={
-  state:"intro",       // intro | play | over
-  level:1, score:0, displayScore:0,
-  chain:1, chainTimer:0,
-  charge:1,            // 0..1, fills over time; each source costs some
-  t:0,                 // field time (seconds, scaled)
-  sources:[],          // {x,y,born,tone,speed,wavelength,life}
-  marks:[],            // targets {x,y,tone,r,life,maxlife,vx,vy,hit}
-  absorbers:[],        // {x,y,r}  -- dampen waves & must be avoided
-  foci:[],             // transient bright crossings for fx
-  shock:[],            // shockwave fx rings
-  particles:[],
-  spawnT:0, spawnEvery:2.6,
-  health:1,            // decoherence resistance 0..1
-  best:+(localStorage.getItem("phase_best")||0),
-  shake:0,
-  lastFocusSound:0,
-};
+const G={state:"intro",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
+  charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
+  spawnT:0,health:1,shake:0,lastSound:0};
 
-// pointer
-let mx=W/2,my=H/2;
-canvas.addEventListener("pointermove",e=>{const r=canvas.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;});
-canvas.addEventListener("pointerdown",e=>{const r=canvas.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top; dropSource();});
+let mx=W/2,my=H/2,shiftHeld=false;
+cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;});
+cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;dropSource();});
 window.addEventListener("keydown",e=>{
-  if(e.code==="Space"){e.preventDefault(); pulseAll();}
+  if(e.code==="Space"){e.preventDefault();pulseAll();}
+  if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=true;
 });
+window.addEventListener("keyup",e=>{if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=false;});
 
-// ---------- mechanics ----------
-const FIELD_SPEED=130;          // px / sec wavefront speed (base)
-const SOURCE_COST=0.34;
-const SOURCE_LIFE=4.2;          // seconds a source keeps emitting
-function currentSpeed(){ return FIELD_SPEED*(1+(G.level-1)*0.05); }
-
+// ---------- actions ----------
 function dropSource(){
-  if(G.state!=="play") return;
-  if(G.charge<SOURCE_COST) { tinyDeny(); return; }
-  G.charge-=SOURCE_COST;
-  // tone of a new source = tone the player most needs (closest live mark) for satisfying feedback,
-  // but player still must aim spatially. Bias toward an existing mark tone.
-  let tone=Math.floor(Math.random()*Math.min(TONES.length,1+Math.floor((G.level-1)/3)));
+  if(G.state!=="play")return;
+  const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);
+  if(G.charge<cost){deny();return;}
+  G.charge-=cost; if(shiftHeld)G.over=true;
+  let tone=Math.floor(Math.random()*C.tonesAtLevel(G.level));
   let near=null,nd=1e9;
-  for(const m of G.marks){const d=(m.x-mx)**2+(m.y-my)**2; if(d<nd){nd=d;near=m;}}
-  if(near && Math.sqrt(nd)<260) tone=near.tone;
-  G.sources.push({x:mx,y:my,born:G.t,tone,wavelength:62});
-  blip(TONES[tone].freq*0.5,0.09,"sine",0.10);
-  ripplePop(mx,my,TONES[tone].rgb);
+  for(const m of G.marks){const d=(m.x-mx)**2+(m.y-my)**2;if(d<nd){nd=d;near=m;}}
+  if(near&&Math.sqrt(nd)<280)tone=near.tone;
+  G.sources.push({x:mx,y:my,born:G.t,tone,over:shiftHeld});
+  blip(C.TONES[tone].freq*0.5,0.09,"sine",0.10);
+  burst(mx,my,C.TONES[tone].rgb,10,40);
 }
 function pulseAll(){
-  if(G.state!=="play") return;
-  if(G.charge<0.5){ tinyDeny(); return; }
+  if(G.state!=="play")return;
+  if(G.charge<0.5){deny();return;}
   G.charge-=0.5;
-  // re-phase: reset every source's wave origin time -> a synchronized burst of fronts
-  for(const s of G.sources) s.born=G.t;
+  for(const s of G.sources)s.born=G.t;
   G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:[154,107,255]});
-  blip(180,0.3,"sawtooth",0.10); blip(240,0.25,"sawtooth",0.07);
+  blip(180,0.3,"sawtooth",0.10);blip(240,0.25,"sawtooth",0.07);
 }
-function tinyDeny(){ G.shake=Math.min(G.shake+3,8); blip(90,0.06,"square",0.05); }
+function deny(){G.shake=Math.min(G.shake+3,8);blip(90,0.06,"square",0.05);}
 
-// wave amplitude at point (px,py) from source at time t. Returns -1..1-ish crest field.
-function fieldAt(px,py,t){
-  let sum=0;
-  const spd=currentSpeed();
-  for(const s of G.sources){
-    const age=t-s.born; if(age<0) continue;
-    const dist=Math.hypot(px-s.x,py-s.y);
-    const frontR=age*spd;
-    // gaussian ring around the leading front + trailing ripples
-    const k=2*Math.PI/s.wavelength;
-    const ringWidth=46;
-    // only meaningful near the front band
-    const dr=dist-frontR;
-    if(dr>10 || dr<-260) continue;          // ahead of front or far behind: ignore
-    const envelope=Math.exp(-(dr*dr)/(2*ringWidth*ringWidth));
-    const wave=Math.cos(k*dr); // ripple
-    const decay=Math.max(0,1-age/SOURCE_LIFE)*Math.max(0,1-dist/Math.max(W,H));
-    sum+=wave*envelope*decay;
-  }
-  // absorbers reduce amplitude nearby
-  for(const a of G.absorbers){
-    const d=Math.hypot(px-a.x,py-a.y);
-    if(d<a.r) sum*=Math.max(0,d/a.r-0.0);
-  }
-  return sum;
+// ---------- spawning ----------
+function spawnMark(forceSuper){
+  const pad=90;
+  const tone=Math.floor(Math.random()*C.tonesAtLevel(G.level));
+  const canMove=G.level>=4&&Math.random()<Math.min(0.1+(G.level-4)*0.06,0.55);
+  const isSuper=!!forceSuper||(G.level>=7&&Math.random()<0.10);
+  let vx=0,vy=0;
+  if(canMove){const a=Math.random()*7,sp=16+Math.random()*20*Math.min((G.level-3)/4,3);vx=Math.cos(a)*sp;vy=Math.sin(a)*sp;}
+  const life=C.markLife(G.level)*(isSuper?1.4:1);
+  G.marks.push({x:pad+Math.random()*(W-2*pad),y:pad+50+Math.random()*(H-2*pad-90),
+    tone,r:0,life,maxlife:life,vx,vy,hit:false,phase:Math.random()*7,
+    isSuper,nearGlow:0,_nm:false});
 }
+function spawnAbsorber(){const pad=130;
+  G.absorbers.push({x:pad+Math.random()*(W-2*pad),y:pad+Math.random()*(H-2*pad),r:44+Math.random()*30,age:0});}
 
-// detect strong constructive crossings near marks (the actual scoring loop)
-function resolveFoci(dt){
-  const spd=currentSpeed();
+// ---------- hit resolution ----------
+function resolveFoci(){
   for(const m of G.marks){
-    if(m.hit) continue;
-    // need at least 2 distinct sources whose fronts are passing the mark right now & in phase
-    let contributors=0, amp=0, toneMatch=true, sameToneCount=0;
-    for(const s of G.sources){
-      const age=G.t-s.born; if(age<0) continue;
-      const dist=Math.hypot(m.x-s.x,m.y-s.y);
-      const frontR=age*spd;
-      const dr=dist-frontR;
-      if(Math.abs(dr)<30){
-        const decay=Math.max(0,1-age/SOURCE_LIFE);
-        if(decay>0.12){
-          contributors++;
-          amp+=Math.cos(2*Math.PI*dr/s.wavelength)*decay;
-          if(s.tone===m.tone) sameToneCount++;
-        }
-      }
-    }
-    if(contributors>=2 && amp>1.05 && sameToneCount>=1){
-      hitMark(m, contributors, sameToneCount===contributors);
+    if(m.hit)continue;
+    const hit=C.evalMark(m,G.t,G.sources,G.level);
+    if(hit && hit.contributors>=(m.isSuper?3:2)){
+      doHit(m,hit);
+    } else {
+      m.nearGlow=C.isNearMiss(m,G.t,G.sources,G.level)?Math.min(1,m.nearGlow+0.4):Math.max(0,m.nearGlow-0.08);
+      if(m.nearGlow>0.7 && !m._nm){m._nm=true; blip(C.TONES[m.tone].freq*1.5,0.05,"sine",0.05);}
+      if(m.nearGlow<0.3)m._nm=false;
     }
   }
   G.marks=G.marks.filter(m=>!m.hit);
 }
-
-function hitMark(m, contributors, pure){
+function doHit(m,hit){
   m.hit=true;
-  let gain=Math.round((90+contributors*40)*(pure?1.6:1)*G.chain);
+  const crit=Math.random()<C.CFG.CRIT_CHANCE;
+  const over=G.over && G.sources.some(s=>s.over);
+  let gain=C.scoreHit(hit,G.chain,over,crit);
+  if(m.isSuper)gain*=4;
+  gain=Math.round(gain);
   G.score+=gain;
-  G.chain=Math.min(G.chain+1,99);
-  G.chainTimer=2.4;
-  G.charge=Math.min(1,G.charge+0.22); // reward refunds charge -> keeps you placing
-  G.health=Math.min(1,G.health+0.04);
-  // fx
-  for(let i=0;i<22;i++){
-    const a=Math.random()*Math.PI*2, sp=60+Math.random()*220;
-    G.particles.push({x:m.x,y:m.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.7+Math.random()*0.5,age:0,col:TONES[m.tone].rgb,r:1.5+Math.random()*2.5});
-  }
-  G.shock.push({x:m.x,y:m.y,r:0,max:160+contributors*40,born:G.t,col:TONES[m.tone].rgb});
-  G.foci.push({x:m.x,y:m.y,age:0,col:TONES[m.tone].rgb});
+  G.chain=Math.min(G.chain+1,99); G.peakChain=Math.max(G.peakChain,G.chain);
+  G.chainTimer=C.CFG.CHAIN_WINDOW;
+  G.charge=Math.min(1,G.charge+C.CFG.CHARGE_REFUND+(crit?0.1:0));
+  G.health=Math.min(1,G.health+C.CFG.HEALTH_REWARD);
+  const big=crit||m.isSuper;
+  burst(m.x,m.y,C.TONES[m.tone].rgb, big?40:22, big?280:200);
+  G.shock.push({x:m.x,y:m.y,r:0,max:(big?260:150)+hit.contributors*40,born:G.t,col:C.TONES[m.tone].rgb});
+  G.foci.push({x:m.x,y:m.y,age:0,col:m.isSuper?[255,255,255]:C.TONES[m.tone].rgb,big});
+  if(big)G.shake=Math.min(G.shake+(m.isSuper?16:9),20);
+  let label=(hit.pure?"PURE ":"")+"+"+gain;
+  if(crit)label="CRIT "+label; if(m.isSuper)label="SUPER "+label;
+  popText(m.x,m.y,label, (m.isSuper||crit)?"#fff":C.TONES[m.tone].c, big?20:15);
   const now=performance.now();
-  if(now-G.lastFocusSound>40){ chord(TONES[m.tone].freq, Math.min(contributors,4)); G.lastFocusSound=now; }
-  popText(m.x,m.y,(pure?"PURE ":"")+"+"+gain, TONES[m.tone].c);
+  if(now-G.lastSound>30){
+    chord(C.TONES[m.tone].freq*(crit?1.5:1),Math.min(hit.contributors+(big?2:0),5),crit?"sawtooth":"triangle");
+    if(big)bass(70,0.4);
+    G.lastSound=now;
+  }
 }
 
+// ---------- fx ----------
 const texts=[];
-function popText(x,y,s,col){ texts.push({x,y,s,col,age:0,life:1.1}); }
+function popText(x,y,s,col,size){texts.push({x,y,s,col,age:0,life:1.15,size:size||15});}
+function burst(x,y,rgb,n,spread){for(let i=0;i<n;i++){const a=Math.random()*7,sp=40+Math.random()*spread;
+  G.parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5+Math.random()*0.6,age:0,col:rgb,r:1+Math.random()*2.6});}}
 
-function ripplePop(x,y,rgb){
-  for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2,sp=30+Math.random()*80;
-    G.particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5,age:0,col:rgb,r:1+Math.random()*2});}
-}
+// ---------- toast ----------
+let toastT=0;
+function toast(t1,t2,col){const e=$("toast");$("toastT1").textContent=t1;$("toastT1").style.color=col||"#fff";
+  $("toastT2").textContent=t2||"";e.style.transition="none";e.style.opacity="1";e.style.transform="translate(-50%,-50%) scale(1)";
+  toastT=1.4;}
+function tickToast(dt){if(toastT>0){toastT-=dt;const e=$("toast");
+  if(toastT<=0){e.style.transition="opacity .5s, transform .5s";e.style.opacity="0";e.style.transform="translate(-50%,-58%) scale(1.05)";}}}
+function flashScreen(col){const f=$("flash");f.style.background=col||"#ff4d8d";f.style.transition="none";f.style.opacity="0.45";
+  requestAnimationFrame(()=>{f.style.transition="opacity .5s ease";f.style.opacity="0";});}
 
-// ---------- spawning marks ----------
-function spawnMark(){
-  const pad=90;
-  const tonesAvail=Math.min(TONES.length, 1+Math.floor((G.level-1)/3));
-  const tone=Math.floor(Math.random()*tonesAvail);
-  const moving=G.level>=4 && Math.random()<Math.min(0.1+(G.level-4)*0.06,0.55);
-  let vx=0,vy=0;
-  if(moving){const a=Math.random()*Math.PI*2,sp=18+Math.random()*22*((G.level-3)/4);vx=Math.cos(a)*sp;vy=Math.sin(a)*sp;}
-  const life=Math.max(3.4, 7.5-(G.level-1)*0.28);
-  G.marks.push({x:pad+Math.random()*(W-2*pad),y:pad+40+Math.random()*(H-2*pad-80),
-    tone,r:0,life,maxlife:life,vx,vy,hit:false,phase:Math.random()*Math.PI*2});
-}
-function spawnAbsorber(){
-  const pad=120;
-  G.absorbers.push({x:pad+Math.random()*(W-2*pad),y:pad+Math.random()*(H-2*pad),r:46+Math.random()*30,age:0});
-}
-
+// ---------- level ----------
 function levelUp(){
-  G.level++;
-  $("lvlv").textContent=G.level;
-  G.spawnEvery=Math.max(0.95, 2.6-(G.level-1)*0.13);
-  if(G.level%4===0 && G.absorbers.length<3) spawnAbsorber();
+  G.level++; $("lvlv").textContent=G.level;
+  if(G.level>=5 && G.level%5===0 && G.absorbers.length<3)spawnAbsorber();
   G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:[39,224,208]});
-  blip(330,0.4,"triangle",0.10); blip(440,0.35,"triangle",0.08);
+  blip(330,0.4,"triangle",0.10);blip(440,0.35,"triangle",0.08);bass(90,0.3);
+  const justUnlocked=UNLOCKS.filter(u=>u.lvl===G.level);
+  if(justUnlocked.length)toast("STRATA "+G.level, justUnlocked.map(u=>u.label).join(" · "),"#27e0d0");
+  else toast("STRATA "+G.level,"the field quickens","#27e0d0");
 }
 
-// ---------- update ----------
+// ---------- loop ----------
 let last=performance.now();
-function frame(now){
-  let dt=(now-last)/1000; last=now;
-  if(dt>0.05) dt=0.05;
-  if(G.state==="play") update(dt);
-  render(dt);
-  requestAnimationFrame(frame);
-}
+function frame(now){let dt=(now-last)/1000;last=now;if(dt>0.05)dt=0.05;
+  if(G.state==="play")update(dt); render(dt); tickToast(dt); requestAnimationFrame(frame);}
 
 function update(dt){
   G.t+=dt;
-  // charge regen
-  G.charge=Math.min(1,G.charge+dt*0.42);
+  G.charge=Math.min(1,G.charge+dt*C.CFG.CHARGE_REGEN);
+  if(G.chainTimer>0){G.chainTimer-=dt;if(G.chainTimer<=0)G.chain=1;}
+  G.sources=G.sources.filter(s=>G.t-s.born<C.CFG.SOURCE_LIFE);
+  if(!G.sources.some(s=>s.over))G.over=false;
 
-  // chain decay
-  if(G.chainTimer>0){G.chainTimer-=dt; if(G.chainTimer<=0)G.chain=1;}
-
-  // prune sources
-  G.sources=G.sources.filter(s=>G.t-s.born<SOURCE_LIFE);
-
-  // marks lifecycle
   G.spawnT+=dt;
-  if(G.spawnT>=G.spawnEvery){G.spawnT=0; spawnMark(); if(Math.random()<0.25 && G.level>=2) spawnMark();}
-  let decohered=false;
+  if(G.spawnT>=C.spawnEvery(G.level)){G.spawnT=0;spawnMark();
+    if(Math.random()<Math.min(0.15+G.level*0.03,0.55)&&G.level>=2)spawnMark();}
+  if(G.level>=10 && Math.random()<dt*0.15){spawnMark();spawnMark();}
+
+  let decohered=[];
   for(const m of G.marks){
-    m.x+=m.vx*dt; m.y+=m.vy*dt;
+    m.x+=m.vx*dt;m.y+=m.vy*dt;
     if(m.x<70||m.x>W-70)m.vx*=-1; if(m.y<110||m.y>H-70)m.vy*=-1;
-    m.life-=dt;
-    m.r=22+Math.sin(G.t*4+m.phase)*3;
-    if(m.life<=0){ decohered=true; }
+    m.x=Math.max(70,Math.min(W-70,m.x)); m.y=Math.max(110,Math.min(H-70,m.y));
+    m.life-=dt; m.r=22+Math.sin(G.t*4+m.phase)*3;
+    if(m.life<=0)decohered.push(m);
   }
-  if(decohered){
-    // a mark went dark -> decoherence damage, chain reset
-    const dead=G.marks.filter(m=>m.life<=0);
-    for(const m of dead){
-      G.health-=0.16; G.chain=1; G.shake=Math.min(G.shake+10,18);
-      flashScreen();
-      for(let i=0;i<16;i++){const a=Math.random()*Math.PI*2,sp=40+Math.random()*120;
-        G.particles.push({x:m.x,y:m.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.6,age:0,col:[255,77,141],r:2});}
-      blip(110,0.25,"sawtooth",0.12);
+  if(decohered.length){
+    for(const m of decohered){
+      const dmg=C.CFG.HEALTH_HIT*(G.over?1.7:1)*(m.isSuper?1.5:1);
+      G.health-=dmg; G.chain=1; G.shake=Math.min(G.shake+10,18);
+      flashScreen("#ff4d8d"); burst(m.x,m.y,[255,77,141],16,120); blip(110,0.25,"sawtooth",0.12);
     }
     G.marks=G.marks.filter(m=>m.life>0);
   }
-  G.health=Math.min(1,G.health+dt*0.018); // slow natural recovery
-  if(G.health<=0){ gameOver(); return; }
+  G.health=Math.min(1,G.health+dt*C.CFG.HEALTH_REGEN);
+  if(G.health<=0){gameOver();return;}
 
-  // scoring
-  resolveFoci(dt);
+  resolveFoci();
+  if(G.score>=C.levelThreshold(G.level))levelUp();
 
-  // level pacing by score thresholds
-  const need=G.level*900+ (G.level*G.level*120);
-  if(G.score>=need) levelUp();
-
-  // fx updates
-  for(const p of G.particles){p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=0.96;p.vy*=0.96;}
-  G.particles=G.particles.filter(p=>p.age<p.life);
-  for(const f of G.foci)f.age+=dt; G.foci=G.foci.filter(f=>f.age<0.4);
-  for(const s of G.shock){const sp=currentSpeed()*2.4;s.r=(G.t-s.born)*sp;} 
-  G.shock=G.shock.filter(s=>s.r<s.max);
-  for(const t of texts){t.age+=dt;t.y-=26*dt;} 
-  for(const a of G.absorbers)a.age=(a.age||0)+dt;
-  while(texts.length&&texts[0].age>texts[0].life)texts.shift();
+  for(const p of G.parts){p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=0.95;p.vy*=0.95;}
+  G.parts=G.parts.filter(p=>p.age<p.life);
+  for(const f of G.foci)f.age+=dt; G.foci=G.foci.filter(f=>f.age<0.45);
+  const sspd=C.speedForLevel(G.level)*2.4;
+  for(const s of G.shock)s.r=(G.t-s.born)*sspd; G.shock=G.shock.filter(s=>s.r<s.max);
+  for(const t of texts){t.age+=dt;t.y-=26*dt;} while(texts.length&&texts[0].age>texts[0].life)texts.shift();
+  for(const a of G.absorbers)a.age+=dt;
   if(G.shake>0)G.shake=Math.max(0,G.shake-dt*30);
 
-  // hud
-  G.displayScore+=(G.score-G.displayScore)*Math.min(1,dt*8);
-  $("scorev").textContent=Math.round(G.displayScore).toLocaleString();
+  G.disp+=(G.score-G.disp)*Math.min(1,dt*8);
+  $("scorev").textContent=Math.round(G.disp).toLocaleString();
   $("combov").textContent="×"+G.chain;
+  $("combo").classList.toggle("hot",G.chain>=8);
+  $("chainfill").style.width=(G.chainTimer>0?(G.chainTimer/C.CFG.CHAIN_WINDOW*100):0)+"%";
   $("charge").style.width=(G.charge*100)+"%";
-  $("srcleft").textContent = G.charge>=SOURCE_COST? "ready":"charging";
-}
-
-function flashScreen(){
-  const f=$("flash"); f.style.transition="none"; f.style.opacity="0.5";
-  requestAnimationFrame(()=>{f.style.transition="opacity .5s ease";f.style.opacity="0";});
+  $("chargeOver").style.opacity=shiftHeld?"1":"0";
+  $("chargeOver").style.width=(G.charge*100)+"%";
+  $("overlab").textContent=shiftHeld?"OVERCHARGE ×2":"";
 }
 
 // ---------- render ----------
-const fieldCanvas=document.createElement("canvas");
-const fctx=fieldCanvas.getContext("2d");
-let lowRes=1;
 function render(dt){
-  let ox=0,oy=0;
-  if(G.shake>0){ox=(Math.random()-0.5)*G.shake;oy=(Math.random()-0.5)*G.shake;}
+  let ox=0,oy=0; if(G.shake>0){ox=(Math.random()-0.5)*G.shake;oy=(Math.random()-0.5)*G.shake;}
+  fctx.setTransform(1,0,0,1,0,0);
+  fctx.clearRect(0,0,fieldCv.width,fieldCv.height);
+  if(G.state!=="intro")drawField();
+
   ctx.setTransform(DPR,0,0,DPR,ox*DPR,oy*DPR);
-
-  // background
-  ctx.fillStyle="#070912"; ctx.fillRect(-20,-20,W+40,H+40);
+  ctx.clearRect(-30,-30,W+60,H+60);
+  ctx.fillStyle="#05060f"; ctx.fillRect(-30,-30,W+60,H+60);
   drawGrid();
-
   if(G.state==="play"||G.state==="over"){
-    drawField();      // the interference visualization (the soul of the game)
-    drawAbsorbers();
-    drawMarks();
-    drawSources();
-    drawShock();
-    drawFoci();
-    drawParticles();
-    drawTexts();
-    drawHealth();
-    drawCursor();
+    drawAbsorbers(); drawMarks(); drawSources(); drawShock(); drawFoci(); drawParts(); drawTexts(); drawHealth(); drawCursor();
   }
 }
+function drawGrid(){ctx.strokeStyle="rgba(120,140,220,.05)";ctx.lineWidth=1;const g=64;ctx.beginPath();
+  for(let x=0;x<=W;x+=g){ctx.moveTo(x,0);ctx.lineTo(x,H);}for(let y=0;y<=H;y+=g){ctx.moveTo(0,y);ctx.lineTo(W,y);}ctx.stroke();}
 
-function drawGrid(){
-  ctx.strokeStyle="rgba(120,140,220,.05)"; ctx.lineWidth=1;
-  const g=64;
-  ctx.beginPath();
-  for(let x=0;x<=W;x+=g){ctx.moveTo(x,0);ctx.lineTo(x,H);}
-  for(let y=0;y<=H;y+=g){ctx.moveTo(0,y);ctx.lineTo(W,y);}
-  ctx.stroke();
-}
-
-// render interference as a low-res amplitude map -> upscaled glow
+const tmp=document.createElement("canvas"), tctx=tmp.getContext("2d");
 function drawField(){
-  if(!G.sources.length) return;
-  const step=10; // sample grid (perf)
+  if(!G.sources.length)return;
+  const step=10;
   const cols=Math.ceil(W/step)+1, rows=Math.ceil(H/step)+1;
-  if(fieldCanvas.width!==cols||fieldCanvas.height!==rows){fieldCanvas.width=cols;fieldCanvas.height=rows;}
-  const img=fctx.createImageData(cols,rows);
-  const d=img.data;
-  for(let j=0;j<rows;j++){
-    for(let i=0;i<cols;i++){
-      const px=i*step, py=j*step;
-      const v=fieldAt(px,py,G.t); // ~ -2..2
-      const idx=(j*cols+i)*4;
-      // map amplitude: positive crest -> bright cyan/violet, crossings -> white hot
-      const a=Math.max(0,v);
-      const hot=Math.min(1,a*0.85);
-      // tone-blend by nearest dominant source tone? keep cool field, foci handle color
-      d[idx]   = Math.min(255, 60*hot + 200*Math.pow(hot,3));
-      d[idx+1] = Math.min(255, 150*hot + 150*Math.pow(hot,3));
-      d[idx+2] = Math.min(255, 180*hot + 255*Math.pow(hot,2));
-      d[idx+3] = Math.min(220, hot*230);
-    }
+  if(tmp.width!==cols||tmp.height!==rows){tmp.width=cols;tmp.height=rows;}
+  const img=tctx.createImageData(cols,rows), d=img.data;
+  for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
+    const v=C.fieldAt(i*step,j*step,G.t,G.sources,G.absorbers,G.level);
+    const idx=(j*cols+i)*4; const a=Math.max(0,v); const hot=Math.min(1,a*0.85);
+    d[idx]  =Math.min(255,60*hot+200*hot*hot*hot);
+    d[idx+1]=Math.min(255,150*hot+150*hot*hot*hot);
+    d[idx+2]=Math.min(255,180*hot+255*hot*hot);
+    d[idx+3]=Math.min(220,hot*230);
   }
-  fctx.putImageData(img,0,0);
-  ctx.save();
-  ctx.globalCompositeOperation="lighter";
-  ctx.imageSmoothingEnabled=true;
-  ctx.globalAlpha=0.9;
-  ctx.drawImage(fieldCanvas,0,0,cols,rows,0,0,cols*step,rows*step);
-  ctx.restore();
+  tctx.putImageData(img,0,0);
+  fctx.save();
+  fctx.scale(DPR,DPR);
+  fctx.globalCompositeOperation="lighter";
+  fctx.imageSmoothingEnabled=true; fctx.globalAlpha=0.9;
+  fctx.drawImage(tmp,0,0,cols,rows,0,0,cols*step,rows*step);
+  fctx.restore();
 }
 
 function drawSources(){
-  for(const s of G.sources){
-    const age=G.t-s.born;
-    const life=1-age/SOURCE_LIFE;
-    const t=TONES[s.tone];
-    ctx.save();
-    ctx.globalAlpha=life;
-    // emitter core
-    const pulse=2+Math.sin(G.t*8)*1.5;
-    ctx.fillStyle=t.c;
-    ctx.shadowColor=t.c; ctx.shadowBlur=18;
-    ctx.beginPath();ctx.arc(s.x,s.y,4+pulse,0,7);ctx.fill();
-    ctx.shadowBlur=0;
-    // a couple of guide rings to show the front position
-    const spd=currentSpeed();
-    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},${0.30*life})`;
-    ctx.lineWidth=1.4;
-    const front=age*spd;
-    ctx.beginPath();ctx.arc(s.x,s.y,front,0,7);ctx.stroke();
-    ctx.restore();
-  }
+  for(const s of G.sources){const age=G.t-s.born;const life=1-age/C.CFG.SOURCE_LIFE;const t=C.TONES[s.tone];
+    ctx.save();ctx.globalAlpha=life;const pulse=2+Math.sin(G.t*8)*1.5;
+    ctx.fillStyle=t.c;ctx.shadowColor=t.c;ctx.shadowBlur=s.over?26:18;
+    ctx.beginPath();ctx.arc(s.x,s.y,4+pulse,0,7);ctx.fill();ctx.shadowBlur=0;
+    const front=age*C.speedForLevel(G.level);
+    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},${0.3*life})`;ctx.lineWidth=s.over?2.2:1.4;
+    ctx.beginPath();ctx.arc(s.x,s.y,front,0,7);ctx.stroke();ctx.restore();}
 }
-
 function drawMarks(){
-  for(const m of G.marks){
-    const t=TONES[m.tone];
-    const lifeFrac=m.life/m.maxlife;
+  for(const m of G.marks){const t=C.TONES[m.tone];const lf=m.life/m.maxlife;
     ctx.save();
-    // outer fading ring = its remaining life (a clock)
-    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},${0.85})`;
-    ctx.lineWidth=2.4;
-    ctx.beginPath();
-    ctx.arc(m.x,m.y,m.r+8,-Math.PI/2,-Math.PI/2+Math.PI*2*lifeFrac);
-    ctx.stroke();
-    // urgency flash
-    const urgent=lifeFrac<0.3;
-    ctx.globalAlpha=urgent?(0.5+Math.sin(G.t*16)*0.5):1;
-    // inner target
+    if(m.nearGlow>0){ctx.globalAlpha=m.nearGlow*0.5;ctx.fillStyle=t.c;
+      ctx.beginPath();ctx.arc(m.x,m.y,m.r+18,0,7);ctx.fill();ctx.globalAlpha=1;}
+    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},.85)`;ctx.lineWidth=m.isSuper?3.4:2.4;
+    ctx.beginPath();ctx.arc(m.x,m.y,m.r+8,-Math.PI/2,-Math.PI/2+Math.PI*2*lf);ctx.stroke();
+    const urgent=lf<0.3; ctx.globalAlpha=urgent?(0.5+Math.sin(G.t*16)*0.5):1;
     ctx.fillStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},0.10)`;
     ctx.beginPath();ctx.arc(m.x,m.y,m.r,0,7);ctx.fill();
-    ctx.strokeStyle=t.c; ctx.lineWidth=1.5;
-    ctx.shadowColor=t.c; ctx.shadowBlur=urgent?16:8;
+    ctx.strokeStyle=t.c;ctx.lineWidth=m.isSuper?2.4:1.5;ctx.shadowColor=t.c;ctx.shadowBlur=urgent?16:8;
     ctx.beginPath();ctx.arc(m.x,m.y,m.r,0,7);ctx.stroke();
-    // center dot
-    ctx.shadowBlur=0;
-    ctx.fillStyle=t.c;
-    ctx.beginPath();ctx.arc(m.x,m.y,2.5,0,7);ctx.fill();
-    ctx.restore();
-  }
+    if(m.isSuper){ctx.shadowBlur=14;ctx.setLineDash([6,7]);ctx.lineDashOffset=-G.t*30;
+      ctx.beginPath();ctx.arc(m.x,m.y,m.r-7,0,7);ctx.stroke();ctx.setLineDash([]);}
+    ctx.shadowBlur=0;ctx.fillStyle=t.c;ctx.beginPath();ctx.arc(m.x,m.y,2.5,0,7);ctx.fill();
+    ctx.restore();}
 }
-
 function drawAbsorbers(){
-  for(const a of G.absorbers){
-    ctx.save();
+  for(const a of G.absorbers){ctx.save();
     const g=ctx.createRadialGradient(a.x,a.y,2,a.x,a.y,a.r);
-    g.addColorStop(0,"rgba(10,12,24,0.95)");
-    g.addColorStop(0.7,"rgba(20,16,40,0.6)");
-    g.addColorStop(1,"rgba(20,16,40,0)");
-    ctx.fillStyle=g;
-    ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,7);ctx.fill();
-    ctx.strokeStyle="rgba(154,107,255,.35)";ctx.lineWidth=1;
-    ctx.setLineDash([4,6]);
-    ctx.beginPath();ctx.arc(a.x,a.y,a.r,G.t*0.4,G.t*0.4+6.0);ctx.stroke();
-    ctx.restore();
-  }
+    g.addColorStop(0,"rgba(8,10,22,0.96)");g.addColorStop(0.7,"rgba(20,16,40,0.6)");g.addColorStop(1,"rgba(20,16,40,0)");
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,7);ctx.fill();
+    ctx.strokeStyle="rgba(154,107,255,.35)";ctx.lineWidth=1;ctx.setLineDash([4,6]);ctx.lineDashOffset=G.t*-10;
+    ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,7);ctx.stroke();ctx.setLineDash([]);ctx.restore();}
 }
-
-function drawShock(){
-  for(const s of G.shock){
-    const f=1-s.r/s.max;
-    ctx.save();
-    ctx.globalAlpha=f*0.5;
-    ctx.strokeStyle=`rgb(${s.col[0]},${s.col[1]},${s.col[2]})`;
-    ctx.lineWidth=2*f+0.5;
-    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.stroke();
-    ctx.restore();
-  }
-}
-
-function drawFoci(){
-  for(const f of G.foci){
-    const k=1-f.age/0.4;
-    ctx.save();
-    ctx.globalCompositeOperation="lighter";
-    const r=10+(1-k)*40;
-    const g=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,r);
-    g.addColorStop(0,`rgba(255,255,255,${k})`);
-    g.addColorStop(0.4,`rgba(${f.col[0]},${f.col[1]},${f.col[2]},${k*0.8})`);
-    g.addColorStop(1,"rgba(0,0,0,0)");
-    ctx.fillStyle=g;
-    ctx.beginPath();ctx.arc(f.x,f.y,r,0,7);ctx.fill();
-    ctx.restore();
-  }
-}
-
-function drawParticles(){
-  ctx.save(); ctx.globalCompositeOperation="lighter";
-  for(const p of G.particles){
-    const k=1-p.age/p.life;
-    ctx.globalAlpha=k;
-    ctx.fillStyle=`rgb(${p.col[0]},${p.col[1]},${p.col[2]})`;
-    ctx.beginPath();ctx.arc(p.x,p.y,p.r*k+0.4,0,7);ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawTexts(){
-  for(const t of texts){
-    const k=1-t.age/t.life;
-    ctx.save();
-    ctx.globalAlpha=k;
-    ctx.fillStyle=t.col;
-    ctx.font="600 15px ui-monospace,monospace";
-    ctx.textAlign="center";
-    ctx.fillText(t.s,t.x,t.y);
-    ctx.restore();
-  }
-}
-
-function drawCursor(){
-  if(G.state!=="play")return;
-  const ok=G.charge>=SOURCE_COST;
-  ctx.save();
-  ctx.globalAlpha=ok?0.9:0.3;
-  ctx.strokeStyle=ok?"#27e0d0":"#7d86b8";
-  ctx.lineWidth=1.2;
-  ctx.beginPath();ctx.arc(mx,my,10+Math.sin(G.t*6)*2,0,7);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(mx-16,my);ctx.lineTo(mx-6,my);
-  ctx.moveTo(mx+6,my);ctx.lineTo(mx+16,my);
-  ctx.moveTo(mx,my-16);ctx.lineTo(mx,my-6);
-  ctx.moveTo(mx,my+6);ctx.lineTo(mx,my+16);ctx.stroke();
-  ctx.restore();
-}
-
-function drawHealth(){
-  // coherence ring around the whole edge (top bar handled by hud; show as thin frame tint)
-  const h=G.health;
-  if(h<0.99){
-    ctx.save();
-    ctx.globalAlpha=(1-h)*0.6;
-    const g=ctx.createLinearGradient(0,0,0,H);
-    ctx.strokeStyle="#ff4d8d"; ctx.lineWidth=6*(1-h)+1;
-    ctx.shadowColor="#ff4d8d"; ctx.shadowBlur=20*(1-h);
-    ctx.strokeRect(3,3,W-6,H-6);
-    ctx.restore();
-  }
-}
+function drawShock(){for(const s of G.shock){const f=1-s.r/s.max;ctx.save();ctx.globalAlpha=f*0.5;
+  ctx.strokeStyle=`rgb(${s.col[0]},${s.col[1]},${s.col[2]})`;ctx.lineWidth=2*f+0.5;
+  ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.stroke();ctx.restore();}}
+function drawFoci(){for(const f of G.foci){const k=1-f.age/0.45;ctx.save();ctx.globalCompositeOperation="lighter";
+  const r=12+(1-k)*(f.big?70:40);const g=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,r);
+  g.addColorStop(0,`rgba(255,255,255,${k})`);g.addColorStop(0.4,`rgba(${f.col[0]},${f.col[1]},${f.col[2]},${k*0.85})`);
+  g.addColorStop(1,"rgba(0,0,0,0)");ctx.fillStyle=g;ctx.beginPath();ctx.arc(f.x,f.y,r,0,7);ctx.fill();ctx.restore();}}
+function drawParts(){ctx.save();ctx.globalCompositeOperation="lighter";
+  for(const p of G.parts){const k=1-p.age/p.life;ctx.globalAlpha=k;
+    ctx.fillStyle=`rgb(${p.col[0]},${p.col[1]},${p.col[2]})`;ctx.beginPath();ctx.arc(p.x,p.y,p.r*k+0.4,0,7);ctx.fill();}ctx.restore();}
+function drawTexts(){for(const t of texts){const k=1-t.age/t.life;ctx.save();ctx.globalAlpha=k;
+  ctx.fillStyle=t.col;ctx.font=`600 ${t.size}px ui-monospace,monospace`;ctx.textAlign="center";
+  ctx.fillText(t.s,t.x,t.y);ctx.restore();}}
+function drawCursor(){if(G.state!=="play")return;const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);const ok=G.charge>=cost;
+  ctx.save();ctx.globalAlpha=ok?0.9:0.3;ctx.strokeStyle=shiftHeld?"#ffc14d":(ok?"#27e0d0":"#7d86b8");ctx.lineWidth=1.3;
+  const rr=10+Math.sin(G.t*6)*2;ctx.beginPath();ctx.arc(mx,my,rr,0,7);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(mx-16,my);ctx.lineTo(mx-6,my);ctx.moveTo(mx+6,my);ctx.lineTo(mx+16,my);
+  ctx.moveTo(mx,my-16);ctx.lineTo(mx,my-6);ctx.moveTo(mx,my+6);ctx.lineTo(mx,my+16);ctx.stroke();ctx.restore();}
+function drawHealth(){const h=G.health;if(h<0.995){ctx.save();ctx.globalAlpha=(1-h)*0.6;
+  ctx.strokeStyle="#ff4d8d";ctx.lineWidth=6*(1-h)+1;ctx.shadowColor="#ff4d8d";ctx.shadowBlur=20*(1-h);
+  ctx.strokeRect(3,3,W-6,H-6);ctx.restore();}}
 
 // ---------- flow ----------
 function startGame(){
-  audio(); if(AC&&AC.state==="suspended")AC.resume();
-  Object.assign(G,{state:"play",level:1,score:0,displayScore:0,chain:1,chainTimer:0,
-    charge:1,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],particles:[],
-    spawnT:0,spawnEvery:2.6,health:1,shake:0});
-  $("lvlv").textContent="1";
-  texts.length=0;
-  $("intro").classList.remove("show");
-  $("over").classList.remove("show");
-  // seed a couple of marks
-  spawnMark(); spawnMark();
+  audio();if(AC&&AC.state==="suspended")AC.resume();
+  Object.assign(G,{state:"play",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
+    charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
+    spawnT:0,health:1,shake:0,lastSound:0});
+  $("lvlv").textContent="1";texts.length=0;
+  $("intro").classList.remove("show");$("over").classList.remove("show");
+  spawnMark();spawnMark();
 }
-
 function gameOver(){
   G.state="over";
-  if(G.score>G.best){G.best=G.score;localStorage.setItem("phase_best",G.best);}
+  META.runs++; localStorage.setItem("phase_runs",META.runs);
+  const beat=G.score>META.best; if(beat){META.best=G.score;localStorage.setItem("phase_best",META.best);}
+  const before=unlockedAt(META.peakLevel);
+  if(G.level>META.peakLevel){META.peakLevel=G.level;localStorage.setItem("phase_peaklvl",META.peakLevel);}
+  const after=unlockedAt(META.peakLevel);
+  const fresh=after.filter(k=>!before.includes(k));
   $("finalScore").textContent=G.score.toLocaleString();
-  $("bestScore").textContent=G.best.toLocaleString();
+  $("bestScore").textContent=META.best.toLocaleString();
   $("finalLvl").textContent=G.level;
-  $("overTip").textContent = G.level<3
-    ? "tip — two sources, dropped apart, meet in the middle. that's a focus."
-    : (G.chain>10? "the field remembers your phase. go further." : "stagger your sources so fronts arrive together on a mark.");
+  $("finalChain").textContent="×"+G.peakChain;
+  $("rankLine").textContent=rankFor(META.best)+(beat?" · new best":"");
+  const list=$("unlockList"); list.innerHTML="";
+  for(const u of UNLOCKS){const on=META.peakLevel>=u.lvl;const isNew=fresh.includes(u.key);
+    const d=document.createElement("div");d.className="chip"+(on?(isNew?" new":" on"):"");
+    d.textContent=on?u.label:("? L"+u.lvl);list.appendChild(d);}
+  $("overTip").textContent = fresh.length? "new mechanic unlocked — go again to use it"
+    : (G.peakChain>12? "your phase sense is sharp. push the strata."
+    : "stagger sources so fronts arrive together — that's the whole game.");
   $("over").classList.add("show");
-  blip(140,0.6,"sine",0.12); setTimeout(()=>blip(105,0.7,"sine",0.10),120);
+  blip(140,0.6,"sine",0.12);setTimeout(()=>blip(105,0.7,"sine",0.10),120);bass(55,0.8);
 }
 
 $("startBtn").addEventListener("click",startGame);
 $("againBtn").addEventListener("click",startGame);
-
 requestAnimationFrame(frame);
 })();
 </script>
