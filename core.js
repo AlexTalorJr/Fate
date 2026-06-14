@@ -58,43 +58,100 @@ function fieldAt(px,py,t,sources,absorbers,level){
 
 // Evaluate whether a mark is currently struck. Returns null or a hit descriptor.
 // Pure: takes explicit state, deterministic given rng() injected.
+//
+// MECHANIC: a focus exists wherever the *front circles* of two live sources currently
+// intersect. (Front circle of a source = circle of radius age*speed centered at the source.)
+// A mark is hit when such an intersection point lands within the mark's catch radius.
+// This is achievable by hand: you place two sources, their expanding rings cross at two
+// moving points, and you steer those crossing points through the mark — no frame-perfect
+// timing required, because the crossing persists for as long as both rings overlap.
+
+// front radius of a source at time t (>=0), or -1 if not emitting / expired
+function frontRadius(s,t,spd){
+  const age=t-s.born;
+  if(age<0 || age>CFG.SOURCE_LIFE*0.95) return -1;
+  return age*spd;
+}
+function sourceDecay(s,t){
+  const age=t-s.born;
+  return Math.max(0,1-age/CFG.SOURCE_LIFE);
+}
+// intersection points of two circles (c1,r1),(c2,r2). Returns array of {x,y} (0,1, or 2 pts).
+function circleIntersections(x1,y1,r1,x2,y2,r2){
+  const d=hypot(x1,y1,x2,y2);
+  if(d===0) return [];
+  if(d>r1+r2) return [];          // too far apart
+  if(d<Math.abs(r1-r2)) return []; // one inside the other
+  const a=(r1*r1-r2*r2+d*d)/(2*d);
+  const h2=r1*r1-a*a;
+  if(h2<0) return [];
+  const h=Math.sqrt(h2);
+  const xm=x1+a*(x2-x1)/d, ym=y1+a*(y2-y1)/d;
+  const ox=-(y2-y1)/d*h, oy=(x2-x1)/d*h;
+  if(h<1e-6) return [{x:xm,y:ym}];
+  return [{x:xm+ox,y:ym+oy},{x:xm-ox,y:ym-oy}];
+}
+
 function evalMark(m,t,sources,level){
   if(m.hit) return null;
   const spd=speedForLevel(level);
-  let contributors=0, amp=0, sameTone=0;
-  for(let s of sources){
-    const age=t-s.born; if(age<0) continue;
-    const dist=hypot(m.x,m.y,s.x,s.y);
-    const dr=dist-age*spd;
-    if(Math.abs(dr)<CFG.FRONT_BAND){
-      const decay=Math.max(0,1-age/CFG.SOURCE_LIFE);
-      if(decay>0.12){
-        contributors++;
-        amp+=Math.cos(2*Math.PI*dr/CFG.WAVELENGTH)*decay;
-        if(s.tone===m.tone) sameTone++;
+  const catchR=m.r+CFG.FRONT_BAND;          // generous catch radius around the mark
+  const need=m.isSuper?3:2;
+  // collect live fronts
+  const fronts=[];
+  for(const s of sources){
+    const r=frontRadius(s,t,spd);
+    if(r<0) continue;
+    if(sourceDecay(s,t)<=0.12) continue;
+    fronts.push({s,r});
+  }
+  if(fronts.length<2) return null;
+  // count how many distinct sources contribute a front-intersection near the mark
+  const contributingSources=new Set();
+  let sameTone=0; const sameToneSources=new Set();
+  for(let i=0;i<fronts.length;i++){
+    for(let j=i+1;j<fronts.length;j++){
+      const A=fronts[i], B=fronts[j];
+      const pts=circleIntersections(A.s.x,A.s.y,A.r, B.s.x,B.s.y,B.r);
+      for(const p of pts){
+        if(hypot(p.x,p.y,m.x,m.y)<=catchR){
+          contributingSources.add(A.s); contributingSources.add(B.s);
+          if(A.s.tone===m.tone) sameToneSources.add(A.s);
+          if(B.s.tone===m.tone) sameToneSources.add(B.s);
+        }
       }
     }
   }
-  if(contributors>=2 && amp>1.05 && sameTone>=1){
-    return {contributors, pure:(sameTone===contributors), amp};
+  const contributors=contributingSources.size;
+  if(contributors>=need && sameToneSources.size>=1){
+    return {contributors, pure:(sameToneSources.size===contributors), amp:contributors};
   }
   return null;
 }
 
-// near miss: exactly one strong front on the mark, or 2 fronts that are out of phase.
+// near miss: fronts cross close to (but not on) the mark, or only one front passes through it.
 function isNearMiss(m,t,sources,level){
   if(m.hit) return false;
   const spd=speedForLevel(level);
-  let contributors=0, amp=0;
-  for(let s of sources){
-    const age=t-s.born; if(age<0) continue;
-    const dr=hypot(m.x,m.y,s.x,s.y)-age*spd;
-    if(Math.abs(dr)<CFG.FRONT_BAND){
-      const decay=Math.max(0,1-age/CFG.SOURCE_LIFE);
-      if(decay>0.12){contributors++; amp+=Math.cos(2*Math.PI*dr/CFG.WAVELENGTH)*decay;}
-    }
+  const catchR=m.r+CFG.FRONT_BAND;
+  const nearR=catchR*2.2;
+  const fronts=[];
+  for(const s of sources){
+    const r=frontRadius(s,t,spd);
+    if(r<0||sourceDecay(s,t)<=0.12) continue;
+    fronts.push({s,r});
   }
-  return (contributors>=2 && amp<=1.05 && amp>0.2) || (contributors===1 && amp>0.6);
+  // a single front sweeping through the mark
+  let single=0;
+  for(const f of fronts){ if(Math.abs(hypot(f.s.x,f.s.y,m.x,m.y)-f.r)<CFG.FRONT_BAND) single++; }
+  if(single>=1 && fronts.length<2) return true;
+  // crossing point just outside the catch radius
+  for(let i=0;i<fronts.length;i++)for(let j=i+1;j<fronts.length;j++){
+    const A=fronts[i],B=fronts[j];
+    const pts=circleIntersections(A.s.x,A.s.y,A.r,B.s.x,B.s.y,B.r);
+    for(const p of pts){const d=hypot(p.x,p.y,m.x,m.y); if(d>catchR && d<nearR) return true;}
+  }
+  return false;
 }
 
 // scoring for a confirmed hit
@@ -119,51 +176,47 @@ function markLife(level){ return Math.max(3.0, 7.5-(level-1)*0.28); }
 // spawn cadence
 function spawnEvery(level){ return Math.max(0.85, 2.6-(level-1)*0.13); }
 
-// ---- prediction helpers (the teaching UX) ----
-// If a NEW source were dropped at (px,py) right now (born=t), when does its front reach mark m?
-function arrivalTime(px,py,m,t,level){
-  const dist=hypot(px,py,m.x,m.y);
-  return t + dist/speedForLevel(level);
-}
-// For an existing source, the time its front reaches mark m (may be in the past).
-function frontArrival(s,m,level){
-  const dist=hypot(s.x,s.y,m.x,m.y);
-  return s.born + dist/speedForLevel(level);
-}
-// Given current sources, would dropping a source at (px,py) now create a focus on m?
-// Returns the best coincidence: {mark, dt} where dt is |arrivalNew - arrivalExisting| for the
-// closest-in-time existing front that is still alive when it arrives. Lower dt = better.
-// dt within FRONT_BAND/speed means the fronts meet in phase -> a focus.
+// ---- prediction (the teaching UX) ----
+// If a NEW source were dropped at (px,py) now, simulate forward and report whether/when
+// its front will cross an existing source's front on top of a live mark -> a focus.
+// Returns {mark, when, quality} (quality 0..1 = how soon / how clean) or null.
 function predictDrop(px,py,t,sources,marks,level){
   const spd=speedForLevel(level);
-  const window=CFG.FRONT_BAND/spd; // seconds of tolerance
+  const fresh={x:px,y:py,born:t,tone:0};
   let best=null;
+  const horizon=CFG.SOURCE_LIFE*0.9;
+  const dtStep=0.04;
   for(const m of marks){
     if(m.hit) continue;
-    const aNew=arrivalTime(px,py,m,t,level);
-    // the new source must still be "young enough" so its decay>0.12 at arrival,
-    // and arrival must be before the mark decoheres
-    if(aNew - t > CFG.SOURCE_LIFE*0.88) continue;
-    if(aNew > t + m.life) continue;
-    for(const s of sources){
-      const aOld=frontArrival(s,m,level);
-      // existing source still emitting a usable front at aOld?
-      if(aOld < s.born) continue;
-      if(aOld - s.born > CFG.SOURCE_LIFE*0.88) continue;
-      if(aOld < t - 0.05) continue;       // its front already passed
-      const dt=Math.abs(aNew-aOld);
-      if(!best || dt<best.dt){
-        best={mark:m, dt, when:aNew, quality:Math.max(0,1-dt/window)};
+    const catchR=m.r+CFG.FRONT_BAND;
+    for(let dtT=0.02; dtT<horizon; dtT+=dtStep){
+      const tt=t+dtT;
+      if(tt>t+m.life) break;             // mark gone by then
+      const rNew=frontRadius(fresh,tt,spd);
+      if(rNew<0) break;
+      // does the fresh front pass within catchR of the mark right now? (necessary)
+      if(Math.abs(hypot(px,py,m.x,m.y)-rNew)>catchR) continue;
+      // is there an existing source whose front also passes the mark at tt?
+      for(const s of sources){
+        const rOld=frontRadius(s,tt,spd);
+        if(rOld<0||sourceDecay(s,tt)<=0.12) continue;
+        if(Math.abs(hypot(s.x,s.y,m.x,m.y)-rOld)<=catchR){
+          const quality=Math.max(0,1-dtT/horizon);
+          if(!best||quality>best.quality) best={mark:m,when:tt,quality,dt:dtT};
+          break;
+        }
       }
+      if(best&&best.mark===m) break;     // earliest crossing for this mark is enough
     }
   }
-  return best; // null if dropping here helps nothing
+  return best;
 }
 
 const API={TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,
   levelThreshold,tonesAtLevel,markLife,spawnEvery,
-  arrivalTime,frontArrival,predictDrop};
+  frontRadius,sourceDecay,circleIntersections,predictDrop};
 
 if(typeof module!=="undefined"&&module.exports) module.exports=API;
 root.PHASE_CORE=API;
+return API;
 })(typeof globalThis!=="undefined"?globalThis:this);

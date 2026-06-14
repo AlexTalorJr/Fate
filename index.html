@@ -115,9 +115,9 @@
     <div class="title">PHASE</div>
     <div class="tag">an interference field</div>
     <div class="lede">
-      You drop <b>ripple sources</b>. Where two ripples meet, a spark ignites
-      and clears a target. <b>That's the whole game</b> — and the field will teach
-      you by hand in ten seconds.
+      You drop <b>ripple sources</b>. Two expanding rings cross at a bright
+      <b>spark</b> — steer that spark onto a target to clear it.
+      <b>That's the whole game</b>, and the field teaches you by hand in ten seconds.
     </div>
     <div class="btnrow">
       <button class="btn pulse" id="startBtn">Teach me</button>
@@ -147,70 +147,224 @@
 <script>
 "use strict";
 const PHASE_CORE=(function(root){
+"use strict";
+
 const TONES=[
-  {name:"cyan",rgb:[39,224,208],freq:392},
-  {name:"magenta",rgb:[255,77,141],freq:523},
-  {name:"amber",rgb:[255,193,77],freq:659},
-  {name:"violet",rgb:[154,107,255],freq:784},
+  {name:"cyan",    rgb:[39,224,208],  freq:392},
+  {name:"magenta", rgb:[255,77,141],  freq:523},
+  {name:"amber",   rgb:[255,193,77],  freq:659},
+  {name:"violet",  rgb:[154,107,255], freq:784},
 ];
-const CFG={FIELD_SPEED:130,SOURCE_COST:0.30,SOURCE_LIFE:4.2,WAVELENGTH:62,RING_WIDTH:46,
-  FRONT_BAND:30,CHARGE_REGEN:0.42,CHARGE_REFUND:0.20,HEALTH_REGEN:0.018,HEALTH_HIT:0.16,
-  HEALTH_REWARD:0.04,CHAIN_WINDOW:2.6,CRIT_CHANCE:0.16,CRIT_MULT:3,OVERCHARGE_MULT:2.2};
+
+const CFG={
+  FIELD_SPEED:130,
+  SOURCE_COST:0.30,
+  SOURCE_LIFE:4.2,
+  WAVELENGTH:62,
+  RING_WIDTH:46,
+  FRONT_BAND:30,        // px tolerance for a front "passing" a mark
+  CHARGE_REGEN:0.42,    // per second
+  CHARGE_REFUND:0.20,   // per successful hit
+  HEALTH_REGEN:0.018,
+  HEALTH_HIT:0.16,      // damage when a mark decoheres
+  HEALTH_REWARD:0.04,
+  CHAIN_WINDOW:2.6,
+  CRIT_CHANCE:0.16,     // variable reward
+  CRIT_MULT:3,
+  OVERCHARGE_MULT:2.2,  // staking mode
+};
+
 function hypot(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);}
-function speedForLevel(l){return CFG.FIELD_SPEED*(1+(l-1)*0.05);}
+
+function speedForLevel(level){ return CFG.FIELD_SPEED*(1+(level-1)*0.05); }
+
+// amplitude of the wave field at a point and time, given sources & absorbers
 function fieldAt(px,py,t,sources,absorbers,level){
-  let sum=0;const spd=speedForLevel(level);const k=2*Math.PI/CFG.WAVELENGTH;const rw=CFG.RING_WIDTH;
-  const W=root.__FIELD_W||1280,H=root.__FIELD_H||720;
-  for(let s of sources){const age=t-s.born;if(age<0)continue;
-    const dist=hypot(px,py,s.x,s.y);const dr=dist-age*spd;
-    if(dr>10||dr<-260)continue;
-    const env=Math.exp(-(dr*dr)/(2*rw*rw));const wave=Math.cos(k*dr);
+  let sum=0;
+  const spd=speedForLevel(level);
+  const k=2*Math.PI/CFG.WAVELENGTH;
+  const rw=CFG.RING_WIDTH;
+  const W=root.__FIELD_W||1280, H=root.__FIELD_H||720;
+  for(let s of sources){
+    const age=t-s.born; if(age<0) continue;
+    const dist=hypot(px,py,s.x,s.y);
+    const frontR=age*spd;
+    const dr=dist-frontR;
+    if(dr>10 || dr<-260) continue;
+    const envelope=Math.exp(-(dr*dr)/(2*rw*rw));
+    const wave=Math.cos(k*dr);
     const decay=Math.max(0,1-age/CFG.SOURCE_LIFE)*Math.max(0,1-dist/Math.max(W,H));
-    sum+=wave*env*decay;}
-  for(let a of absorbers){const d=hypot(px,py,a.x,a.y);if(d<a.r)sum*=Math.max(0,d/a.r);}
-  return sum;}
+    sum+=wave*envelope*decay;
+  }
+  for(let a of absorbers){
+    const d=hypot(px,py,a.x,a.y);
+    if(d<a.r) sum*=Math.max(0,d/a.r);
+  }
+  return sum;
+}
+
+// Evaluate whether a mark is currently struck. Returns null or a hit descriptor.
+// Pure: takes explicit state, deterministic given rng() injected.
+//
+// MECHANIC: a focus exists wherever the *front circles* of two live sources currently
+// intersect. (Front circle of a source = circle of radius age*speed centered at the source.)
+// A mark is hit when such an intersection point lands within the mark's catch radius.
+// This is achievable by hand: you place two sources, their expanding rings cross at two
+// moving points, and you steer those crossing points through the mark — no frame-perfect
+// timing required, because the crossing persists for as long as both rings overlap.
+
+// front radius of a source at time t (>=0), or -1 if not emitting / expired
+function frontRadius(s,t,spd){
+  const age=t-s.born;
+  if(age<0 || age>CFG.SOURCE_LIFE*0.95) return -1;
+  return age*spd;
+}
+function sourceDecay(s,t){
+  const age=t-s.born;
+  return Math.max(0,1-age/CFG.SOURCE_LIFE);
+}
+// intersection points of two circles (c1,r1),(c2,r2). Returns array of {x,y} (0,1, or 2 pts).
+function circleIntersections(x1,y1,r1,x2,y2,r2){
+  const d=hypot(x1,y1,x2,y2);
+  if(d===0) return [];
+  if(d>r1+r2) return [];          // too far apart
+  if(d<Math.abs(r1-r2)) return []; // one inside the other
+  const a=(r1*r1-r2*r2+d*d)/(2*d);
+  const h2=r1*r1-a*a;
+  if(h2<0) return [];
+  const h=Math.sqrt(h2);
+  const xm=x1+a*(x2-x1)/d, ym=y1+a*(y2-y1)/d;
+  const ox=-(y2-y1)/d*h, oy=(x2-x1)/d*h;
+  if(h<1e-6) return [{x:xm,y:ym}];
+  return [{x:xm+ox,y:ym+oy},{x:xm-ox,y:ym-oy}];
+}
+
 function evalMark(m,t,sources,level){
-  if(m.hit)return null;const spd=speedForLevel(level);
-  let contributors=0,amp=0,sameTone=0;
-  for(let s of sources){const age=t-s.born;if(age<0)continue;
-    const dr=hypot(m.x,m.y,s.x,s.y)-age*spd;
-    if(Math.abs(dr)<CFG.FRONT_BAND){const decay=Math.max(0,1-age/CFG.SOURCE_LIFE);
-      if(decay>0.12){contributors++;amp+=Math.cos(2*Math.PI*dr/CFG.WAVELENGTH)*decay;if(s.tone===m.tone)sameTone++;}}}
-  if(contributors>=2&&amp>1.05&&sameTone>=1)return{contributors,pure:(sameTone===contributors),amp};
-  return null;}
+  if(m.hit) return null;
+  const spd=speedForLevel(level);
+  const catchR=m.r+CFG.FRONT_BAND;          // generous catch radius around the mark
+  const need=m.isSuper?3:2;
+  // collect live fronts
+  const fronts=[];
+  for(const s of sources){
+    const r=frontRadius(s,t,spd);
+    if(r<0) continue;
+    if(sourceDecay(s,t)<=0.12) continue;
+    fronts.push({s,r});
+  }
+  if(fronts.length<2) return null;
+  // count how many distinct sources contribute a front-intersection near the mark
+  const contributingSources=new Set();
+  let sameTone=0; const sameToneSources=new Set();
+  for(let i=0;i<fronts.length;i++){
+    for(let j=i+1;j<fronts.length;j++){
+      const A=fronts[i], B=fronts[j];
+      const pts=circleIntersections(A.s.x,A.s.y,A.r, B.s.x,B.s.y,B.r);
+      for(const p of pts){
+        if(hypot(p.x,p.y,m.x,m.y)<=catchR){
+          contributingSources.add(A.s); contributingSources.add(B.s);
+          if(A.s.tone===m.tone) sameToneSources.add(A.s);
+          if(B.s.tone===m.tone) sameToneSources.add(B.s);
+        }
+      }
+    }
+  }
+  const contributors=contributingSources.size;
+  if(contributors>=need && sameToneSources.size>=1){
+    return {contributors, pure:(sameToneSources.size===contributors), amp:contributors};
+  }
+  return null;
+}
+
+// near miss: fronts cross close to (but not on) the mark, or only one front passes through it.
 function isNearMiss(m,t,sources,level){
-  if(m.hit)return false;const spd=speedForLevel(level);let contributors=0,amp=0;
-  for(let s of sources){const age=t-s.born;if(age<0)continue;
-    const dr=hypot(m.x,m.y,s.x,s.y)-age*spd;
-    if(Math.abs(dr)<CFG.FRONT_BAND){const decay=Math.max(0,1-age/CFG.SOURCE_LIFE);
-      if(decay>0.12){contributors++;amp+=Math.cos(2*Math.PI*dr/CFG.WAVELENGTH)*decay;}}}
-  return(contributors>=2&&amp<=1.05&&amp>0.2)||(contributors===1&&amp>0.6);}
-function scoreHit(hit,chain,overcharge,crit){
-  let g=(90+hit.contributors*40);if(hit.pure)g*=1.6;g*=chain;
-  if(overcharge)g*=CFG.OVERCHARGE_MULT;if(crit)g*=CFG.CRIT_MULT;return Math.round(g);}
-function levelThreshold(l){return l*900+l*l*120;}
-function tonesAtLevel(l){return Math.min(TONES.length,1+Math.floor((l-1)/3));}
-function markLife(l){return Math.max(3.0,7.5-(l-1)*0.28);}
-function spawnEvery(l){return Math.max(0.85,2.6-(l-1)*0.13);}
-function arrivalTime(px,py,m,t,level){return t+hypot(px,py,m.x,m.y)/speedForLevel(level);}
-function frontArrival(s,m,level){return s.born+hypot(s.x,s.y,m.x,m.y)/speedForLevel(level);}
+  if(m.hit) return false;
+  const spd=speedForLevel(level);
+  const catchR=m.r+CFG.FRONT_BAND;
+  const nearR=catchR*2.2;
+  const fronts=[];
+  for(const s of sources){
+    const r=frontRadius(s,t,spd);
+    if(r<0||sourceDecay(s,t)<=0.12) continue;
+    fronts.push({s,r});
+  }
+  // a single front sweeping through the mark
+  let single=0;
+  for(const f of fronts){ if(Math.abs(hypot(f.s.x,f.s.y,m.x,m.y)-f.r)<CFG.FRONT_BAND) single++; }
+  if(single>=1 && fronts.length<2) return true;
+  // crossing point just outside the catch radius
+  for(let i=0;i<fronts.length;i++)for(let j=i+1;j<fronts.length;j++){
+    const A=fronts[i],B=fronts[j];
+    const pts=circleIntersections(A.s.x,A.s.y,A.r,B.s.x,B.s.y,B.r);
+    for(const p of pts){const d=hypot(p.x,p.y,m.x,m.y); if(d>catchR && d<nearR) return true;}
+  }
+  return false;
+}
+
+// scoring for a confirmed hit
+function scoreHit(hit, chain, overcharge, crit){
+  let g=(90+hit.contributors*40);
+  if(hit.pure) g*=1.6;
+  g*=chain;
+  if(overcharge) g*=CFG.OVERCHARGE_MULT;
+  if(crit) g*=CFG.CRIT_MULT;
+  return Math.round(g);
+}
+
+// score threshold to reach a given level
+function levelThreshold(level){ return level*900 + level*level*120; }
+
+// how many simultaneous tones are unlocked at a level
+function tonesAtLevel(level){ return Math.min(TONES.length, 1+Math.floor((level-1)/3)); }
+
+// mark lifetime shrinks with level but never below floor
+function markLife(level){ return Math.max(3.0, 7.5-(level-1)*0.28); }
+
+// spawn cadence
+function spawnEvery(level){ return Math.max(0.85, 2.6-(level-1)*0.13); }
+
+// ---- prediction (the teaching UX) ----
+// If a NEW source were dropped at (px,py) now, simulate forward and report whether/when
+// its front will cross an existing source's front on top of a live mark -> a focus.
+// Returns {mark, when, quality} (quality 0..1 = how soon / how clean) or null.
 function predictDrop(px,py,t,sources,marks,level){
-  const spd=speedForLevel(level);const window=CFG.FRONT_BAND/spd;let best=null;
-  for(const m of marks){if(m.hit)continue;
-    const aNew=arrivalTime(px,py,m,t,level);
-    if(aNew-t>CFG.SOURCE_LIFE*0.88)continue;
-    if(aNew>t+m.life)continue;
-    for(const s of sources){
-      const aOld=frontArrival(s,m,level);
-      if(aOld<s.born)continue;
-      if(aOld-s.born>CFG.SOURCE_LIFE*0.88)continue;
-      if(aOld<t-0.05)continue;
-      const dt=Math.abs(aNew-aOld);
-      if(!best||dt<best.dt)best={mark:m,dt,when:aNew,quality:Math.max(0,1-dt/window)};
-    }}
-  return best;}
-return{TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,levelThreshold,
-  tonesAtLevel,markLife,spawnEvery,arrivalTime,frontArrival,predictDrop};
+  const spd=speedForLevel(level);
+  const fresh={x:px,y:py,born:t,tone:0};
+  let best=null;
+  const horizon=CFG.SOURCE_LIFE*0.9;
+  const dtStep=0.04;
+  for(const m of marks){
+    if(m.hit) continue;
+    const catchR=m.r+CFG.FRONT_BAND;
+    for(let dtT=0.02; dtT<horizon; dtT+=dtStep){
+      const tt=t+dtT;
+      if(tt>t+m.life) break;             // mark gone by then
+      const rNew=frontRadius(fresh,tt,spd);
+      if(rNew<0) break;
+      // does the fresh front pass within catchR of the mark right now? (necessary)
+      if(Math.abs(hypot(px,py,m.x,m.y)-rNew)>catchR) continue;
+      // is there an existing source whose front also passes the mark at tt?
+      for(const s of sources){
+        const rOld=frontRadius(s,tt,spd);
+        if(rOld<0||sourceDecay(s,tt)<=0.12) continue;
+        if(Math.abs(hypot(s.x,s.y,m.x,m.y)-rOld)<=catchR){
+          const quality=Math.max(0,1-dtT/horizon);
+          if(!best||quality>best.quality) best={mark:m,when:tt,quality,dt:dtT};
+          break;
+        }
+      }
+      if(best&&best.mark===m) break;     // earliest crossing for this mark is enough
+    }
+  }
+  return best;
+}
+
+const API={TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,
+  levelThreshold,tonesAtLevel,markLife,spawnEvery,
+  frontRadius,sourceDecay,circleIntersections,predictDrop};
+
+root.PHASE_CORE=API;
+return API;
 })(window);
 </script>
 
@@ -529,7 +683,7 @@ function render(dt){
   ctx.clearRect(-30,-30,W+60,H+60); ctx.fillStyle="#05060f"; ctx.fillRect(-30,-30,W+60,H+60);
   drawGrid();
   if(G.state==="play"||G.state==="over"){
-    drawAbsorbers(); drawMarks(); drawPrediction(); drawSources(); drawShock(); drawFoci();
+    drawAbsorbers(); drawMarks(); drawPrediction(); drawSources(); drawCrossings(); drawShock(); drawFoci();
     drawParts(); drawTexts(); drawGhost(); drawHealth(); drawCursor();
   }
 }
@@ -555,6 +709,30 @@ function drawField(){
   fctx.drawImage(tmp,0,0,cols,rows,0,0,cols*step,rows*step);fctx.restore();
 }
 
+// LIVE CROSSINGS: draw the moving points where two live fronts currently intersect.
+// This is the heart of the visual feedback — the player steers these sparks onto marks.
+function drawCrossings(){
+  if(G.sources.length<2)return;
+  const spd=C.speedForLevel(G.level);
+  const fronts=[];
+  for(const s of G.sources){const r=C.frontRadius(s,G.t,spd); if(r<0||C.sourceDecay(s,G.t)<=0.12)continue; fronts.push({s,r});}
+  ctx.save(); ctx.globalCompositeOperation="lighter";
+  for(let i=0;i<fronts.length;i++)for(let j=i+1;j<fronts.length;j++){
+    const A=fronts[i],B=fronts[j];
+    const pts=C.circleIntersections(A.s.x,A.s.y,A.r,B.s.x,B.s.y,B.r);
+    for(const p of pts){
+      const pulse=0.6+Math.sin(G.t*10)*0.4;
+      const r=7+pulse*4;
+      const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r*2);
+      g.addColorStop(0,"rgba(255,255,255,0.95)");
+      g.addColorStop(0.4,"rgba(160,230,255,0.7)");
+      g.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r*2,0,7); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 // PREDICTION: when the cursor hovers, show whether dropping here will make a focus,
 // which target it'll hit, and a connecting line. This makes the invisible visible.
 function drawPrediction(){
@@ -576,9 +754,9 @@ function drawPrediction(){
   ctx.lineWidth=2+q*2;
   ctx.beginPath();ctx.arc(m.x,m.y,m.r+15,0,7);ctx.stroke();
   // small confidence label near cursor
-  if(q>0.66){ctx.globalAlpha=0.9;ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
+  if(q>0.5){ctx.globalAlpha=0.9;ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
     ctx.font="600 11px ui-monospace,monospace";ctx.textAlign="center";
-    ctx.fillText("IN PHASE",mx,my-22);}
+    ctx.fillText(q>0.66?"WILL HIT":"CLOSE",mx,my-22);}
   ctx.restore();
 }
 
