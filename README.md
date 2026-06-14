@@ -1,48 +1,54 @@
-# PHASE — v2
+# PHASE
 
-An interference field. You don't shoot — you **drop ripple sources**.
+An interference field. You don't shoot — you **drop ripple sources**. Where two
+ripples meet in phase, a **focus** ignites and clears a target. That's the whole
+game: aim by predicting *where wavefronts will cross*, not where things are now.
 
-Each source emits expanding rings. Where two crests **cross in phase**, a bright
-**focus** ignites for an instant — that focus is your only weapon. You aim by
-predicting *where wavefronts will meet*, not where things are now. Land focuses on
-fading **marks** before they decohere. Chain them and the field quickens.
+No bullet-hell, no enemy horde. Pure spatial-temporal prediction — like billiards
+where the cue ball is an expanding circle.
 
-Pure spatial-temporal prediction. No bullet-hell, no enemy horde. Something the
-genre hasn't seen: you reason about wave fronts in space *and* time, like a
-billiards player whose cue ball is an expanding circle.
+## Built for "I get it" in ten seconds
 
-## What v2 adds (the hooks that keep you in)
+The previous version was hard to read. This one teaches by hand:
 
-- **Chain multiplier** — each focus raises ×score; a short window means letting go hurts.
-- **Crits** — random ×3 strikes (variable reward; the slot-machine pull).
-- **Overcharge (hold Shift)** — ×2 score for ×2 miss cost. Staking your run.
-- **Superposition marks** — rare, need 3 fronts, pay enormous when nailed clean.
-- **Near-miss feedback** — marks glow and chime when a focus *almost* lands. The itch.
-- **Progressive unlocks** — new mechanics (extra tones, moving marks, voids, twins)
-  reveal as you push deeper. A reason to re-enter.
-- **Ranks + best run** — Drifter → Coherence, remembered locally.
-- **Juice** — screen shake, particle bursts, rising chords, sub-bass on big payouts.
+- **Interactive tutorial** — the field places two glowing "DROP HERE" rings, you
+  click them, and you *watch* your two ripples cross and ignite your first focus.
+  No wall of text. You learn the mechanic by doing it once.
+- **Live prediction** — hover before you click and a dashed line shows exactly
+  which target you'll hit and how clean the timing is (green = in phase). The
+  invisible wave-meeting is made visible, so aiming is learnable, not luck.
+- **Soft start** — a grace period spawns marks slower and still at first, so the
+  difficulty ramp begins gently and accelerates as you find your rhythm.
+- Returning players skip straight in; the tutorial is remembered.
+
+## Hooks that keep you in
+
+Chain multiplier with a burn-down timer · random ×3 crits · hold-Shift overcharge
+(×2 score, ×2 miss cost) · rare Superposition jackpots · near-miss glow + chime ·
+progressive mechanic unlocks (tones, moving marks, voids, twins) · ranks and a
+remembered best run · screen shake, particle bursts, rising chords, sub-bass.
 
 ## Play
 
 Open `index.html` in any modern browser. No build, no dependencies, no assets.
 
-- **Click / tap** — drop a ripple source (costs phase charge)
+- **Click / tap** — drop a ripple source
 - **Space** — re-phase every source into one synchronized burst
 - **Hold Shift** — overcharge
-- Land ≥2 fronts on a mark *in phase* → focus → score
-- Same-tone sources on a same-tone mark → **PURE** bonus
+- Land ≥2 fronts on a mark in phase → focus → score
+- Same-tone sources on a same-tone mark → PURE bonus
 - A mark going dark = decoherence. Lose all coherence → DECOHERED.
 
 ## Tech / testing
 
-Single self-contained file (Canvas 2D + Web Audio). Game logic lives in pure,
-testable functions, mirrored byte-for-byte inside `index.html`.
+Single self-contained file (Canvas 2D + Web Audio). Logic lives in pure, testable
+functions, mirrored byte-for-byte inside `index.html`.
 
-- `core.js` — pure logic module
-- `regress.js` — 35-assertion regression suite (`node regress.js`)
-- `sim.js` — headless runtime simulation that mocks DOM/canvas/audio and plays
-  the game for minutes to catch runtime errors (`node sim.js`)
+- `core.js` — pure logic (waves, scoring, progression, prediction)
+- `regress.js` — 43-assertion regression suite (`node regress.js`)
+- `sim.js` — headless run that mocks DOM/canvas/audio and plays tutorial + 5 min
+  of stress play to catch runtime errors (`node sim.js`)
 
-All green: 35/35 unit assertions, byte-for-byte core parity with the embedded
-copy, full DOM-reference audit, and a clean 10-minute (36k-frame) stress run.
+All green: 43/43 unit assertions, byte-for-byte core parity with the embedded
+copy, full DOM-reference audit, verified tutorial progression, and a clean
+multi-minute stress run.

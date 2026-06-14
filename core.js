@@ -119,8 +119,50 @@ function markLife(level){ return Math.max(3.0, 7.5-(level-1)*0.28); }
 // spawn cadence
 function spawnEvery(level){ return Math.max(0.85, 2.6-(level-1)*0.13); }
 
+// ---- prediction helpers (the teaching UX) ----
+// If a NEW source were dropped at (px,py) right now (born=t), when does its front reach mark m?
+function arrivalTime(px,py,m,t,level){
+  const dist=hypot(px,py,m.x,m.y);
+  return t + dist/speedForLevel(level);
+}
+// For an existing source, the time its front reaches mark m (may be in the past).
+function frontArrival(s,m,level){
+  const dist=hypot(s.x,s.y,m.x,m.y);
+  return s.born + dist/speedForLevel(level);
+}
+// Given current sources, would dropping a source at (px,py) now create a focus on m?
+// Returns the best coincidence: {mark, dt} where dt is |arrivalNew - arrivalExisting| for the
+// closest-in-time existing front that is still alive when it arrives. Lower dt = better.
+// dt within FRONT_BAND/speed means the fronts meet in phase -> a focus.
+function predictDrop(px,py,t,sources,marks,level){
+  const spd=speedForLevel(level);
+  const window=CFG.FRONT_BAND/spd; // seconds of tolerance
+  let best=null;
+  for(const m of marks){
+    if(m.hit) continue;
+    const aNew=arrivalTime(px,py,m,t,level);
+    // the new source must still be "young enough" so its decay>0.12 at arrival,
+    // and arrival must be before the mark decoheres
+    if(aNew - t > CFG.SOURCE_LIFE*0.88) continue;
+    if(aNew > t + m.life) continue;
+    for(const s of sources){
+      const aOld=frontArrival(s,m,level);
+      // existing source still emitting a usable front at aOld?
+      if(aOld < s.born) continue;
+      if(aOld - s.born > CFG.SOURCE_LIFE*0.88) continue;
+      if(aOld < t - 0.05) continue;       // its front already passed
+      const dt=Math.abs(aNew-aOld);
+      if(!best || dt<best.dt){
+        best={mark:m, dt, when:aNew, quality:Math.max(0,1-dt/window)};
+      }
+    }
+  }
+  return best; // null if dropping here helps nothing
+}
+
 const API={TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,
-  levelThreshold,tonesAtLevel,markLife,spawnEvery};
+  levelThreshold,tonesAtLevel,markLife,spawnEvery,
+  arrivalTime,frontArrival,predictDrop};
 
 if(typeof module!=="undefined"&&module.exports) module.exports=API;
 root.PHASE_CORE=API;

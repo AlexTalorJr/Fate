@@ -150,6 +150,26 @@ ok("source cost < full charge", C.CFG.SOURCE_COST<1);
 ok("refund < cost (net spend per hit-less placement)", C.CFG.CHARGE_REFUND<1);
 ok("regen positive", C.CFG.CHARGE_REGEN>0);
 
+// ---- prediction helpers ----
+(function(){
+  const level=1, spd=C.speedForLevel(level), t=0;
+  const m={x:0,y:0,tone:0,hit:false,life:5};
+  const aNear=C.arrivalTime(50,0,m,t,level);
+  const aFar =C.arrivalTime(200,0,m,t,level);
+  ok("arrivalTime grows with distance", aFar>aNear);
+  ok("arrivalTime = dist/speed", approx(aNear, 50/spd, 1e-6));
+  const s={x:0,y:100,born:0,tone:0};
+  ok("frontArrival = born + dist/speed", approx(C.frontArrival(s,m,level), 100/spd, 1e-6));
+  const ex={x:-200,y:0,born:0,tone:0};
+  const pred=C.predictDrop(200,0,0, [ex], [m], level);
+  ok("predictDrop finds a coincidence", pred!==null);
+  ok("predictDrop dt small for symmetric drop", pred && pred.dt<0.05);
+  ok("predictDrop quality high for good drop", pred && pred.quality>0.8);
+  ok("predictDrop null with no sources", C.predictDrop(10,10,0,[],[m],level)===null);
+  const shortMark={x:0,y:0,tone:0,hit:false,life:0.1};
+  ok("predictDrop respects mark life", C.predictDrop(5000,0,0,[ex],[shortMark],level)===null);
+})();
+
 // ---- report ----
 console.log(`\nPHASE regression: ${pass} passed, ${fail} failed`);
 if(fail){ console.log("FAILURES:\n - "+fails.join("\n - ")); process.exit(1); }

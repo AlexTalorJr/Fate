@@ -7,7 +7,7 @@
 <style>
   :root{
     --void:#05060f; --deep:#0c1326; --ink:#eef1ff; --dim:#7d86b8;
-    --cyan:#27e0d0; --magenta:#ff4d8d; --amber:#ffc14d; --violet:#9a6bff;
+    --cyan:#27e0d0; --magenta:#ff4d8d; --amber:#ffc14d; --violet:#9a6bff; --green:#5dffa0;
     --line:rgba(120,140,220,.14);
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none}
@@ -18,7 +18,8 @@
 
   .hud{position:fixed;left:0;right:0;top:0;padding:14px 18px;display:flex;
     justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:5;
-    font-variant-numeric:tabular-nums}
+    font-variant-numeric:tabular-nums;transition:opacity .4s}
+  .hud.dim{opacity:.25}
   .stat{display:flex;flex-direction:column;gap:3px}
   .stat .k{font-size:10px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
   .stat .v{font-size:22px;font-weight:600;letter-spacing:.02em;line-height:1}
@@ -28,12 +29,20 @@
   .chainbar{height:3px;width:60px;background:rgba(255,193,77,.18);border-radius:2px;margin-top:5px;overflow:hidden}
   .chainfill{height:100%;width:100%;background:var(--amber);transition:width .1s linear}
 
-  .charge-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;width:min(560px,82vw);z-index:5;pointer-events:none}
+  .charge-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;width:min(560px,82vw);z-index:5;pointer-events:none;transition:opacity .4s}
+  .charge-wrap.dim{opacity:.25}
   .charge-bar{height:9px;border-radius:6px;background:rgba(120,140,220,.12);overflow:hidden;border:1px solid var(--line);position:relative}
   .charge-fill{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--cyan));transition:width .08s linear}
   .charge-over{position:absolute;inset:0;width:0;background:linear-gradient(90deg,var(--amber),var(--magenta));opacity:0;transition:opacity .2s}
   .charge-lab{display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
   #overlab{color:var(--amber)}
+
+  /* coach line — the running instruction during tutorial */
+  .coach{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    text-align:center;max-width:90vw;opacity:0;transition:opacity .35s}
+  .coach.show{opacity:1}
+  .coach .c1{font-size:clamp(16px,3.4vw,24px);font-weight:600;letter-spacing:.02em;color:var(--ink)}
+  .coach .c2{font-size:12px;letter-spacing:.16em;color:var(--cyan);text-transform:uppercase;margin-top:7px}
 
   .scrim{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
     background:radial-gradient(120% 120% at 50% 35%,rgba(12,19,38,.85),rgba(5,6,15,.97));
@@ -43,14 +52,16 @@
   .title{font-size:clamp(56px,14vw,140px);font-weight:700;letter-spacing:.14em;line-height:.88;
     background:linear-gradient(120deg,var(--cyan),var(--violet) 50%,var(--magenta));
     -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px}
-  .tag{font-size:12px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase;margin-bottom:24px}
-  .lede{font-size:13.5px;line-height:1.9;color:#c2caf2;margin:0 auto 26px;max-width:440px;text-align:left}
-  .lede b{color:var(--cyan);font-weight:600} .lede em{color:var(--amber);font-style:normal}
-  .lede u{color:var(--magenta);text-decoration:none}
+  .tag{font-size:12px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase;margin-bottom:30px}
+  .lede{font-size:14px;line-height:1.7;color:#c2caf2;margin:0 auto 30px;max-width:380px}
+  .lede b{color:var(--cyan);font-weight:600}
+  .btnrow{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
   .btn{pointer-events:auto;cursor:pointer;border:1px solid var(--cyan);background:transparent;color:var(--cyan);
-    font-family:inherit;font-size:13px;letter-spacing:.32em;text-transform:uppercase;padding:15px 42px;border-radius:40px;transition:.18s;font-weight:600}
+    font-family:inherit;font-size:13px;letter-spacing:.28em;text-transform:uppercase;padding:15px 38px;border-radius:40px;transition:.18s;font-weight:600}
   .btn:hover{background:var(--cyan);color:var(--void);box-shadow:0 0 36px rgba(39,224,208,.55)}
   .btn:active{transform:scale(.96)}
+  .btn.ghost{border-color:var(--line);color:var(--dim)}
+  .btn.ghost:hover{border-color:var(--dim);background:transparent;color:var(--ink);box-shadow:none}
   .row{display:flex;gap:34px;justify-content:center;margin-bottom:24px;flex-wrap:wrap}
   .big{font-size:12px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
   .big .n{display:block;font-size:36px;letter-spacing:0;margin-top:5px;color:var(--ink);font-weight:600}
@@ -65,7 +76,8 @@
   .rank{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--violet);margin-bottom:14px}
 
   .keyhint{position:fixed;left:18px;bottom:54px;z-index:5;font-size:10px;letter-spacing:.13em;color:var(--dim);
-    pointer-events:none;line-height:1.8;text-transform:uppercase;opacity:.65}
+    pointer-events:none;line-height:1.8;text-transform:uppercase;opacity:.6;transition:opacity .4s}
+  .keyhint.dim{opacity:0}
   .flash{position:fixed;inset:0;z-index:4;pointer-events:none;opacity:0}
   .toast{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%);z-index:6;pointer-events:none;text-align:center;opacity:0}
   .toast .t1{font-size:clamp(28px,7vw,64px);font-weight:700;letter-spacing:.1em;line-height:1}
@@ -79,19 +91,21 @@
   <canvas id="c"></canvas>
 </div>
 
-<div class="hud">
+<div class="hud" id="hud">
   <div class="stat" id="lvl"><span class="k">Strata</span><span class="v" id="lvlv">1</span></div>
   <div class="stat c"><span class="k">Score</span><span class="v" id="scorev">0</span></div>
   <div class="stat r" id="combo"><span class="k">Chain</span><span class="v" id="combov">×1</span>
     <div class="chainbar"><div class="chainfill" id="chainfill"></div></div></div>
 </div>
 
-<div class="charge-wrap">
+<div class="charge-wrap" id="chargeWrap">
   <div class="charge-lab"><span>Phase charge</span><span id="overlab"></span></div>
   <div class="charge-bar"><div class="charge-fill" id="charge"></div><div class="charge-over" id="chargeOver"></div></div>
 </div>
 
-<div class="keyhint">Click — drop source · Space — re-phase burst · Hold Shift — overcharge (2× risk)</div>
+<div class="coach" id="coach"><div class="c1" id="coach1"></div><div class="c2" id="coach2"></div></div>
+
+<div class="keyhint" id="keyhint">Click — drop source · Space — re-phase · Hold Shift — overcharge</div>
 
 <div class="flash" id="flash"></div>
 <div class="toast" id="toast"><div class="t1" id="toastT1"></div><div class="t2" id="toastT2"></div></div>
@@ -99,17 +113,17 @@
 <div class="scrim show" id="intro">
   <div class="panel">
     <div class="title">PHASE</div>
-    <div class="tag">an interference field · v2</div>
+    <div class="tag">an interference field</div>
     <div class="lede">
-      You don't shoot. You drop <b>ripple sources</b>. Each sends rings outward.
-      Where two crests <b>cross in phase</b>, a <b>focus</b> ignites — your only weapon.<br><br>
-      Aim by predicting <em>where fronts will meet</em>. Land focuses on fading <b>marks</b>
-      before they go dark. <em>Chain</em> them: the multiplier climbs and never wants to stop.<br><br>
-      <u>Crits</u> strike at random for triple. Hold <u>Shift</u> to overcharge — double score,
-      double the cost of a miss. Rare <u>SUPERPOSITION</u> marks pay enormous if you nail them clean.
+      You drop <b>ripple sources</b>. Where two ripples meet, a spark ignites
+      and clears a target. <b>That's the whole game</b> — and the field will teach
+      you by hand in ten seconds.
     </div>
-    <button class="btn pulse" id="startBtn">Enter the field</button>
-    <div class="fine">patience beats reflex · best run is remembered</div>
+    <div class="btnrow">
+      <button class="btn pulse" id="startBtn">Teach me</button>
+      <button class="btn ghost" id="skipBtn">Skip intro</button>
+    </div>
+    <div class="fine">best run is remembered</div>
   </div>
 </div>
 
@@ -178,7 +192,25 @@ function levelThreshold(l){return l*900+l*l*120;}
 function tonesAtLevel(l){return Math.min(TONES.length,1+Math.floor((l-1)/3));}
 function markLife(l){return Math.max(3.0,7.5-(l-1)*0.28);}
 function spawnEvery(l){return Math.max(0.85,2.6-(l-1)*0.13);}
-return{TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,levelThreshold,tonesAtLevel,markLife,spawnEvery};
+function arrivalTime(px,py,m,t,level){return t+hypot(px,py,m.x,m.y)/speedForLevel(level);}
+function frontArrival(s,m,level){return s.born+hypot(s.x,s.y,m.x,m.y)/speedForLevel(level);}
+function predictDrop(px,py,t,sources,marks,level){
+  const spd=speedForLevel(level);const window=CFG.FRONT_BAND/spd;let best=null;
+  for(const m of marks){if(m.hit)continue;
+    const aNew=arrivalTime(px,py,m,t,level);
+    if(aNew-t>CFG.SOURCE_LIFE*0.88)continue;
+    if(aNew>t+m.life)continue;
+    for(const s of sources){
+      const aOld=frontArrival(s,m,level);
+      if(aOld<s.born)continue;
+      if(aOld-s.born>CFG.SOURCE_LIFE*0.88)continue;
+      if(aOld<t-0.05)continue;
+      const dt=Math.abs(aNew-aOld);
+      if(!best||dt<best.dt)best={mark:m,dt,when:aNew,quality:Math.max(0,1-dt/window)};
+    }}
+  return best;}
+return{TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,isNearMiss,scoreHit,levelThreshold,
+  tonesAtLevel,markLife,spawnEvery,arrivalTime,frontArrival,predictDrop};
 })(window);
 </script>
 
@@ -216,56 +248,56 @@ function bass(freq,dur){const a=audio();if(!a)return;const o=a.createOscillator(
   g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);
   g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur+0.05);}
 
-// ---------- meta / persistence ----------
-const META={
-  best:+(localStorage.getItem("phase_best")||0),
+// ---------- meta ----------
+const META={best:+(localStorage.getItem("phase_best")||0),
   peakLevel:+(localStorage.getItem("phase_peaklvl")||1),
   runs:+(localStorage.getItem("phase_runs")||0),
-};
+  taught:localStorage.getItem("phase_taught")==="1"};
 const RANKS=[[0,"Drifter"],[3000,"Tuner"],[9000,"Resonant"],[20000,"Phase-walker"],[45000,"Standing Wave"],[90000,"Coherence"]];
-function rankFor(score){let r=RANKS[0][1];for(const[s,n]of RANKS)if(score>=s)r=n;return r;}
+function rankFor(s){let r=RANKS[0][1];for(const[v,n]of RANKS)if(s>=v)r=n;return r;}
 const UNLOCKS=[
-  {lvl:1,key:"core",label:"Foci"},
-  {lvl:2,key:"tone2",label:"2nd tone"},
-  {lvl:4,key:"moving",label:"Moving marks"},
-  {lvl:4,key:"tone3",label:"3rd tone"},
-  {lvl:5,key:"absorb",label:"Voids"},
-  {lvl:7,key:"super",label:"Superposition"},
-  {lvl:7,key:"tone4",label:"4th tone"},
-  {lvl:10,key:"twin",label:"Twin marks"},
-];
-function unlockedAt(peak){return UNLOCKS.filter(u=>peak>=u.lvl).map(u=>u.key);}
+  {lvl:1,key:"core",label:"Foci"},{lvl:2,key:"tone2",label:"2nd tone"},
+  {lvl:4,key:"moving",label:"Moving marks"},{lvl:4,key:"tone3",label:"3rd tone"},
+  {lvl:5,key:"absorb",label:"Voids"},{lvl:7,key:"super",label:"Superposition"},
+  {lvl:7,key:"tone4",label:"4th tone"},{lvl:10,key:"twin",label:"Twin marks"}];
+function unlockedAt(p){return UNLOCKS.filter(u=>p>=u.lvl).map(u=>u.key);}
 
-// ---------- game state ----------
+// ---------- state ----------
 const G={state:"intro",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
   charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
-  spawnT:0,health:1,shake:0,lastSound:0};
+  spawnT:0,health:1,shake:0,lastSound:0,grace:0,
+  tut:null}; // tutorial controller or null
 
-let mx=W/2,my=H/2,shiftHeld=false;
-cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;});
-cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;dropSource();});
+let mx=W/2,my=H/2,shiftHeld=false,hasMouse=false;
+cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hasMouse=true;});
+cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hasMouse=true;onTap();});
 window.addEventListener("keydown",e=>{
   if(e.code==="Space"){e.preventDefault();pulseAll();}
-  if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=true;
-});
+  if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=true;});
 window.addEventListener("keyup",e=>{if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=false;});
 
-// ---------- actions ----------
-function dropSource(){
+function onTap(){
   if(G.state!=="play")return;
+  if(G.tut){ G.tut.onTap(); return; }
+  dropSource();
+}
+
+// ---------- actions ----------
+function dropSource(forceTone){
   const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);
-  if(G.charge<cost){deny();return;}
+  if(G.charge<cost){deny();return false;}
   G.charge-=cost; if(shiftHeld)G.over=true;
-  let tone=Math.floor(Math.random()*C.tonesAtLevel(G.level));
-  let near=null,nd=1e9;
-  for(const m of G.marks){const d=(m.x-mx)**2+(m.y-my)**2;if(d<nd){nd=d;near=m;}}
-  if(near&&Math.sqrt(nd)<280)tone=near.tone;
+  let tone = (forceTone!=null)?forceTone:Math.floor(Math.random()*C.tonesAtLevel(G.level));
+  if(forceTone==null){let near=null,nd=1e9;
+    for(const m of G.marks){const d=(m.x-mx)**2+(m.y-my)**2;if(d<nd){nd=d;near=m;}}
+    if(near&&Math.sqrt(nd)<280)tone=near.tone;}
   G.sources.push({x:mx,y:my,born:G.t,tone,over:shiftHeld});
   blip(C.TONES[tone].freq*0.5,0.09,"sine",0.10);
   burst(mx,my,C.TONES[tone].rgb,10,40);
+  return true;
 }
 function pulseAll(){
-  if(G.state!=="play")return;
+  if(G.state!=="play"||G.tut)return;
   if(G.charge<0.5){deny();return;}
   G.charge-=0.5;
   for(const s of G.sources)s.born=G.t;
@@ -275,17 +307,20 @@ function pulseAll(){
 function deny(){G.shake=Math.min(G.shake+3,8);blip(90,0.06,"square",0.05);}
 
 // ---------- spawning ----------
-function spawnMark(forceSuper){
+function spawnMark(forceSuper,opts){
+  opts=opts||{};
   const pad=90;
-  const tone=Math.floor(Math.random()*C.tonesAtLevel(G.level));
-  const canMove=G.level>=4&&Math.random()<Math.min(0.1+(G.level-4)*0.06,0.55);
-  const isSuper=!!forceSuper||(G.level>=7&&Math.random()<0.10);
+  const tone=opts.tone!=null?opts.tone:Math.floor(Math.random()*C.tonesAtLevel(G.level));
+  const canMove=!opts.still&&G.level>=4&&Math.random()<Math.min(0.1+(G.level-4)*0.06,0.55);
+  const isSuper=!!forceSuper||(!opts.still&&G.level>=7&&Math.random()<0.10);
   let vx=0,vy=0;
   if(canMove){const a=Math.random()*7,sp=16+Math.random()*20*Math.min((G.level-3)/4,3);vx=Math.cos(a)*sp;vy=Math.sin(a)*sp;}
-  const life=C.markLife(G.level)*(isSuper?1.4:1);
-  G.marks.push({x:pad+Math.random()*(W-2*pad),y:pad+50+Math.random()*(H-2*pad-90),
-    tone,r:0,life,maxlife:life,vx,vy,hit:false,phase:Math.random()*7,
-    isSuper,nearGlow:0,_nm:false});
+  let life=C.markLife(G.level)*(isSuper?1.4:1);
+  if(opts.life)life=opts.life;
+  const m={x:opts.x!=null?opts.x:pad+Math.random()*(W-2*pad),
+    y:opts.y!=null?opts.y:pad+50+Math.random()*(H-2*pad-90),
+    tone,r:0,life,maxlife:life,vx,vy,hit:false,phase:Math.random()*7,isSuper,nearGlow:0,_nm:false};
+  G.marks.push(m); return m;
 }
 function spawnAbsorber(){const pad=130;
   G.absorbers.push({x:pad+Math.random()*(W-2*pad),y:pad+Math.random()*(H-2*pad),r:44+Math.random()*30,age:0});}
@@ -295,42 +330,35 @@ function resolveFoci(){
   for(const m of G.marks){
     if(m.hit)continue;
     const hit=C.evalMark(m,G.t,G.sources,G.level);
-    if(hit && hit.contributors>=(m.isSuper?3:2)){
-      doHit(m,hit);
-    } else {
+    if(hit && hit.contributors>=(m.isSuper?3:2)) doHit(m,hit);
+    else{
       m.nearGlow=C.isNearMiss(m,G.t,G.sources,G.level)?Math.min(1,m.nearGlow+0.4):Math.max(0,m.nearGlow-0.08);
-      if(m.nearGlow>0.7 && !m._nm){m._nm=true; blip(C.TONES[m.tone].freq*1.5,0.05,"sine",0.05);}
-      if(m.nearGlow<0.3)m._nm=false;
-    }
+      if(m.nearGlow>0.7&&!m._nm){m._nm=true;blip(C.TONES[m.tone].freq*1.5,0.05,"sine",0.05);}
+      if(m.nearGlow<0.3)m._nm=false;}
   }
   G.marks=G.marks.filter(m=>!m.hit);
 }
 function doHit(m,hit){
   m.hit=true;
-  const crit=Math.random()<C.CFG.CRIT_CHANCE;
-  const over=G.over && G.sources.some(s=>s.over);
-  let gain=C.scoreHit(hit,G.chain,over,crit);
-  if(m.isSuper)gain*=4;
-  gain=Math.round(gain);
+  const crit=!G.tut && Math.random()<C.CFG.CRIT_CHANCE;
+  const over=G.over&&G.sources.some(s=>s.over);
+  let gain=C.scoreHit(hit,G.chain,over,crit); if(m.isSuper)gain*=4; gain=Math.round(gain);
   G.score+=gain;
   G.chain=Math.min(G.chain+1,99); G.peakChain=Math.max(G.peakChain,G.chain);
   G.chainTimer=C.CFG.CHAIN_WINDOW;
   G.charge=Math.min(1,G.charge+C.CFG.CHARGE_REFUND+(crit?0.1:0));
   G.health=Math.min(1,G.health+C.CFG.HEALTH_REWARD);
   const big=crit||m.isSuper;
-  burst(m.x,m.y,C.TONES[m.tone].rgb, big?40:22, big?280:200);
+  burst(m.x,m.y,C.TONES[m.tone].rgb,big?40:22,big?280:200);
   G.shock.push({x:m.x,y:m.y,r:0,max:(big?260:150)+hit.contributors*40,born:G.t,col:C.TONES[m.tone].rgb});
   G.foci.push({x:m.x,y:m.y,age:0,col:m.isSuper?[255,255,255]:C.TONES[m.tone].rgb,big});
   if(big)G.shake=Math.min(G.shake+(m.isSuper?16:9),20);
   let label=(hit.pure?"PURE ":"")+"+"+gain;
   if(crit)label="CRIT "+label; if(m.isSuper)label="SUPER "+label;
-  popText(m.x,m.y,label, (m.isSuper||crit)?"#fff":C.TONES[m.tone].c, big?20:15);
+  popText(m.x,m.y,label,(m.isSuper||crit)?"#fff":C.TONES[m.tone].c,big?20:15);
   const now=performance.now();
-  if(now-G.lastSound>30){
-    chord(C.TONES[m.tone].freq*(crit?1.5:1),Math.min(hit.contributors+(big?2:0),5),crit?"sawtooth":"triangle");
-    if(big)bass(70,0.4);
-    G.lastSound=now;
-  }
+  if(now-G.lastSound>30){chord(C.TONES[m.tone].freq*(crit?1.5:1),Math.min(hit.contributors+(big?2:0),5),crit?"sawtooth":"triangle");if(big)bass(70,0.4);G.lastSound=now;}
+  if(G.tut)G.tut.onHit(m);
 }
 
 // ---------- fx ----------
@@ -339,25 +367,95 @@ function popText(x,y,s,col,size){texts.push({x,y,s,col,age:0,life:1.15,size:size
 function burst(x,y,rgb,n,spread){for(let i=0;i<n;i++){const a=Math.random()*7,sp=40+Math.random()*spread;
   G.parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5+Math.random()*0.6,age:0,col:rgb,r:1+Math.random()*2.6});}}
 
-// ---------- toast ----------
 let toastT=0;
 function toast(t1,t2,col){const e=$("toast");$("toastT1").textContent=t1;$("toastT1").style.color=col||"#fff";
-  $("toastT2").textContent=t2||"";e.style.transition="none";e.style.opacity="1";e.style.transform="translate(-50%,-50%) scale(1)";
-  toastT=1.4;}
+  $("toastT2").textContent=t2||"";e.style.transition="none";e.style.opacity="1";e.style.transform="translate(-50%,-50%) scale(1)";toastT=1.4;}
 function tickToast(dt){if(toastT>0){toastT-=dt;const e=$("toast");
   if(toastT<=0){e.style.transition="opacity .5s, transform .5s";e.style.opacity="0";e.style.transform="translate(-50%,-58%) scale(1.05)";}}}
 function flashScreen(col){const f=$("flash");f.style.background=col||"#ff4d8d";f.style.transition="none";f.style.opacity="0.45";
   requestAnimationFrame(()=>{f.style.transition="opacity .5s ease";f.style.opacity="0";});}
 
+// coach line
+function coach(c1,c2){const e=$("coach");$("coach1").innerHTML=c1||"";$("coach2").textContent=c2||"";
+  e.classList.toggle("show",!!c1);}
+function dimHud(on){$("hud").classList.toggle("dim",on);$("chargeWrap").classList.toggle("dim",on);$("keyhint").classList.toggle("dim",on);}
+
 // ---------- level ----------
 function levelUp(){
   G.level++; $("lvlv").textContent=G.level;
-  if(G.level>=5 && G.level%5===0 && G.absorbers.length<3)spawnAbsorber();
+  if(G.level>=5&&G.level%5===0&&G.absorbers.length<3)spawnAbsorber();
   G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:[39,224,208]});
   blip(330,0.4,"triangle",0.10);blip(440,0.35,"triangle",0.08);bass(90,0.3);
-  const justUnlocked=UNLOCKS.filter(u=>u.lvl===G.level);
-  if(justUnlocked.length)toast("STRATA "+G.level, justUnlocked.map(u=>u.label).join(" · "),"#27e0d0");
-  else toast("STRATA "+G.level,"the field quickens","#27e0d0");
+  const j=UNLOCKS.filter(u=>u.lvl===G.level);
+  toast("STRATA "+G.level, j.length?j.map(u=>u.label).join(" · "):"the field quickens","#27e0d0");
+}
+
+// ============================================================
+//  TUTORIAL — interactive, hand-held, ~3 guided focuses
+// ============================================================
+function makeTutorial(){
+  let step=0, guideA=null, mark=null, waiting=false, doneT=0;
+  // glowing ghost markers the player is told to click
+  function ghost(x,y){return {x,y,t:0};}
+  let ghostMarker=null;
+
+  function setStep(n){
+    step=n;
+    if(n===0){
+      coach("A target appeared. Drop a source on the <b>glowing ring</b>.","step 1 of 3 · click the ring");
+      mark=spawnMark(false,{x:W*0.5,y:H*0.46,tone:0,still:true,life:999});
+      ghostMarker=ghost(W*0.5-170,H*0.46);
+    }else if(n===1){
+      coach("Good. Now drop a <b>second source</b> on the other ring.","step 2 of 3 · the ripples will meet");
+      ghostMarker=ghost(W*0.5+170,H*0.46);
+    }else if(n===2){
+      coach("Watch the two ripples expand and <b>cross on the target</b>…","");
+      ghostMarker=null; waiting=true;
+    }else if(n===3){
+      coach("That spark is a <b>focus</b>. Two ripples meeting = one cleared target.","step 3 of 3 · now do it yourself");
+      mark=spawnMark(false,{x:W*0.42+Math.random()*W*0.16,y:H*0.40+Math.random()*H*0.14,tone:0,still:true,life:999});
+      ghostMarker=null; waiting=false;
+    }else if(n===4){
+      coach("You've got it. Targets <b>fade</b> — clear them before they vanish.","entering the field…");
+      doneT=2.0;
+    }
+  }
+  setStep(0);
+
+  return {
+    ghostMarker:()=>ghostMarker,
+    onTap(){
+      if(step===0){
+        // place exactly on the ghost so the lesson always works
+        if(ghostMarker){mx=ghostMarker.x;my=ghostMarker.y;}
+        dropSource(0); setStep(1);
+      }else if(step===1){
+        if(ghostMarker){mx=ghostMarker.x;my=ghostMarker.y;}
+        dropSource(0); setStep(2);
+      }else if(step===3){
+        // free placement; only advance once they actually score (onHit)
+        dropSource(0);
+      }
+    },
+    onHit(m){
+      if(step===2){ setStep(3); }
+      else if(step===3){ setStep(4); }
+    },
+    update(dt){
+      if(ghostMarker)ghostMarker.t+=dt;
+      // keep tutorial marks alive
+      for(const m of G.marks)m.life=Math.max(m.life,5);
+      if(doneT>0){doneT-=dt; if(doneT<=0)finishTutorial();}
+    }
+  };
+}
+function finishTutorial(){
+  G.tut=null; coach("",""); dimHud(false);
+  localStorage.setItem("phase_taught","1"); META.taught=true;
+  // clean leftover tutorial marks, start real pacing with a grace period
+  G.marks=[]; G.sources=[]; G.grace=4; G.spawnT=0;
+  spawnMark(false,{still:true}); spawnMark(false,{still:true});
+  toast("BEGIN","clear the marks · keep the chain","#27e0d0");
 }
 
 // ---------- loop ----------
@@ -367,37 +465,40 @@ function frame(now){let dt=(now-last)/1000;last=now;if(dt>0.05)dt=0.05;
 
 function update(dt){
   G.t+=dt;
+  if(G.grace>0)G.grace-=dt;
   G.charge=Math.min(1,G.charge+dt*C.CFG.CHARGE_REGEN);
   if(G.chainTimer>0){G.chainTimer-=dt;if(G.chainTimer<=0)G.chain=1;}
   G.sources=G.sources.filter(s=>G.t-s.born<C.CFG.SOURCE_LIFE);
   if(!G.sources.some(s=>s.over))G.over=false;
 
-  G.spawnT+=dt;
-  if(G.spawnT>=C.spawnEvery(G.level)){G.spawnT=0;spawnMark();
-    if(Math.random()<Math.min(0.15+G.level*0.03,0.55)&&G.level>=2)spawnMark();}
-  if(G.level>=10 && Math.random()<dt*0.15){spawnMark();spawnMark();}
+  if(G.tut){ G.tut.update(dt); }
+  else{
+    G.spawnT+=dt;
+    const ease=G.grace>0?1.6:1; // slower spawns during grace
+    if(G.spawnT>=C.spawnEvery(G.level)*ease){G.spawnT=0;spawnMark();
+      if(G.grace<=0&&Math.random()<Math.min(0.15+G.level*0.03,0.55)&&G.level>=2)spawnMark();}
+    if(G.level>=10&&Math.random()<dt*0.15){spawnMark();spawnMark();}
+  }
 
   let decohered=[];
   for(const m of G.marks){
     m.x+=m.vx*dt;m.y+=m.vy*dt;
     if(m.x<70||m.x>W-70)m.vx*=-1; if(m.y<110||m.y>H-70)m.vy*=-1;
     m.x=Math.max(70,Math.min(W-70,m.x)); m.y=Math.max(110,Math.min(H-70,m.y));
-    m.life-=dt; m.r=22+Math.sin(G.t*4+m.phase)*3;
+    if(!G.tut)m.life-=dt; m.r=22+Math.sin(G.t*4+m.phase)*3;
     if(m.life<=0)decohered.push(m);
   }
-  if(decohered.length){
+  if(decohered.length&&!G.tut){
     for(const m of decohered){
       const dmg=C.CFG.HEALTH_HIT*(G.over?1.7:1)*(m.isSuper?1.5:1);
       G.health-=dmg; G.chain=1; G.shake=Math.min(G.shake+10,18);
-      flashScreen("#ff4d8d"); burst(m.x,m.y,[255,77,141],16,120); blip(110,0.25,"sawtooth",0.12);
-    }
+      flashScreen("#ff4d8d"); burst(m.x,m.y,[255,77,141],16,120); blip(110,0.25,"sawtooth",0.12);}
     G.marks=G.marks.filter(m=>m.life>0);
   }
-  G.health=Math.min(1,G.health+dt*C.CFG.HEALTH_REGEN);
-  if(G.health<=0){gameOver();return;}
+  if(!G.tut){G.health=Math.min(1,G.health+dt*C.CFG.HEALTH_REGEN); if(G.health<=0){gameOver();return;}}
 
   resolveFoci();
-  if(G.score>=C.levelThreshold(G.level))levelUp();
+  if(!G.tut&&G.score>=C.levelThreshold(G.level))levelUp();
 
   for(const p of G.parts){p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=0.95;p.vy*=0.95;}
   G.parts=G.parts.filter(p=>p.age<p.life);
@@ -422,16 +523,14 @@ function update(dt){
 // ---------- render ----------
 function render(dt){
   let ox=0,oy=0; if(G.shake>0){ox=(Math.random()-0.5)*G.shake;oy=(Math.random()-0.5)*G.shake;}
-  fctx.setTransform(1,0,0,1,0,0);
-  fctx.clearRect(0,0,fieldCv.width,fieldCv.height);
+  fctx.setTransform(1,0,0,1,0,0); fctx.clearRect(0,0,fieldCv.width,fieldCv.height);
   if(G.state!=="intro")drawField();
-
   ctx.setTransform(DPR,0,0,DPR,ox*DPR,oy*DPR);
-  ctx.clearRect(-30,-30,W+60,H+60);
-  ctx.fillStyle="#05060f"; ctx.fillRect(-30,-30,W+60,H+60);
+  ctx.clearRect(-30,-30,W+60,H+60); ctx.fillStyle="#05060f"; ctx.fillRect(-30,-30,W+60,H+60);
   drawGrid();
   if(G.state==="play"||G.state==="over"){
-    drawAbsorbers(); drawMarks(); drawSources(); drawShock(); drawFoci(); drawParts(); drawTexts(); drawHealth(); drawCursor();
+    drawAbsorbers(); drawMarks(); drawPrediction(); drawSources(); drawShock(); drawFoci();
+    drawParts(); drawTexts(); drawGhost(); drawHealth(); drawCursor();
   }
 }
 function drawGrid(){ctx.strokeStyle="rgba(120,140,220,.05)";ctx.lineWidth=1;const g=64;ctx.beginPath();
@@ -440,25 +539,47 @@ function drawGrid(){ctx.strokeStyle="rgba(120,140,220,.05)";ctx.lineWidth=1;cons
 const tmp=document.createElement("canvas"), tctx=tmp.getContext("2d");
 function drawField(){
   if(!G.sources.length)return;
-  const step=10;
-  const cols=Math.ceil(W/step)+1, rows=Math.ceil(H/step)+1;
+  const step=10, cols=Math.ceil(W/step)+1, rows=Math.ceil(H/step)+1;
   if(tmp.width!==cols||tmp.height!==rows){tmp.width=cols;tmp.height=rows;}
   const img=tctx.createImageData(cols,rows), d=img.data;
   for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
     const v=C.fieldAt(i*step,j*step,G.t,G.sources,G.absorbers,G.level);
     const idx=(j*cols+i)*4; const a=Math.max(0,v); const hot=Math.min(1,a*0.85);
-    d[idx]  =Math.min(255,60*hot+200*hot*hot*hot);
+    d[idx]=Math.min(255,60*hot+200*hot*hot*hot);
     d[idx+1]=Math.min(255,150*hot+150*hot*hot*hot);
     d[idx+2]=Math.min(255,180*hot+255*hot*hot);
-    d[idx+3]=Math.min(220,hot*230);
-  }
+    d[idx+3]=Math.min(220,hot*230);}
   tctx.putImageData(img,0,0);
-  fctx.save();
-  fctx.scale(DPR,DPR);
-  fctx.globalCompositeOperation="lighter";
-  fctx.imageSmoothingEnabled=true; fctx.globalAlpha=0.9;
-  fctx.drawImage(tmp,0,0,cols,rows,0,0,cols*step,rows*step);
-  fctx.restore();
+  fctx.save();fctx.scale(DPR,DPR);fctx.globalCompositeOperation="lighter";
+  fctx.imageSmoothingEnabled=true;fctx.globalAlpha=0.9;
+  fctx.drawImage(tmp,0,0,cols,rows,0,0,cols*step,rows*step);fctx.restore();
+}
+
+// PREDICTION: when the cursor hovers, show whether dropping here will make a focus,
+// which target it'll hit, and a connecting line. This makes the invisible visible.
+function drawPrediction(){
+  if(!hasMouse||G.state!=="play"||!G.marks.length)return;
+  const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);
+  if(G.charge<cost)return;
+  const pred=C.predictDrop(mx,my,G.t,G.sources,G.marks,G.level);
+  if(!pred)return;
+  const m=pred.mark, q=pred.quality;
+  const col= q>0.66? [93,255,160] : q>0.33? [255,193,77] : [125,134,184];
+  ctx.save();
+  // line from cursor to the target it would strike
+  ctx.globalAlpha=0.25+q*0.45;
+  ctx.strokeStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
+  ctx.lineWidth=1.4; ctx.setLineDash([5,7]); ctx.lineDashOffset=-G.t*30;
+  ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(m.x,m.y);ctx.stroke();ctx.setLineDash([]);
+  // highlight the predicted target with a confidence ring
+  ctx.globalAlpha=0.5+q*0.5;
+  ctx.lineWidth=2+q*2;
+  ctx.beginPath();ctx.arc(m.x,m.y,m.r+15,0,7);ctx.stroke();
+  // small confidence label near cursor
+  if(q>0.66){ctx.globalAlpha=0.9;ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
+    ctx.font="600 11px ui-monospace,monospace";ctx.textAlign="center";
+    ctx.fillText("IN PHASE",mx,my-22);}
+  ctx.restore();
 }
 
 function drawSources(){
@@ -467,11 +588,11 @@ function drawSources(){
     ctx.fillStyle=t.c;ctx.shadowColor=t.c;ctx.shadowBlur=s.over?26:18;
     ctx.beginPath();ctx.arc(s.x,s.y,4+pulse,0,7);ctx.fill();ctx.shadowBlur=0;
     const front=age*C.speedForLevel(G.level);
-    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},${0.3*life})`;ctx.lineWidth=s.over?2.2:1.4;
+    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},${0.32*life})`;ctx.lineWidth=s.over?2.2:1.6;
     ctx.beginPath();ctx.arc(s.x,s.y,front,0,7);ctx.stroke();ctx.restore();}
 }
 function drawMarks(){
-  for(const m of G.marks){const t=C.TONES[m.tone];const lf=m.life/m.maxlife;
+  for(const m of G.marks){const t=C.TONES[m.tone];const lf=m.maxlife>500?1:m.life/m.maxlife;
     ctx.save();
     if(m.nearGlow>0){ctx.globalAlpha=m.nearGlow*0.5;ctx.fillStyle=t.c;
       ctx.beginPath();ctx.arc(m.x,m.y,m.r+18,0,7);ctx.fill();ctx.globalAlpha=1;}
@@ -508,6 +629,19 @@ function drawParts(){ctx.save();ctx.globalCompositeOperation="lighter";
 function drawTexts(){for(const t of texts){const k=1-t.age/t.life;ctx.save();ctx.globalAlpha=k;
   ctx.fillStyle=t.col;ctx.font=`600 ${t.size}px ui-monospace,monospace`;ctx.textAlign="center";
   ctx.fillText(t.s,t.x,t.y);ctx.restore();}}
+function drawGhost(){
+  if(!G.tut)return; const gm=G.tut.ghostMarker(); if(!gm)return;
+  const p=0.5+Math.sin(gm.t*4)*0.5;
+  ctx.save();
+  ctx.globalAlpha=0.5+p*0.5; ctx.strokeStyle="#27e0d0"; ctx.lineWidth=2;
+  ctx.shadowColor="#27e0d0"; ctx.shadowBlur=18;
+  ctx.beginPath();ctx.arc(gm.x,gm.y,18+p*8,0,7);ctx.stroke();
+  ctx.beginPath();ctx.arc(gm.x,gm.y,5,0,7);ctx.fillStyle="#27e0d0";ctx.fill();
+  ctx.shadowBlur=0;ctx.globalAlpha=0.9;
+  ctx.fillStyle="#27e0d0";ctx.font="600 11px ui-monospace,monospace";ctx.textAlign="center";
+  ctx.fillText("DROP HERE",gm.x,gm.y-30);
+  ctx.restore();
+}
 function drawCursor(){if(G.state!=="play")return;const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);const ok=G.charge>=cost;
   ctx.save();ctx.globalAlpha=ok?0.9:0.3;ctx.strokeStyle=shiftHeld?"#ffc14d":(ok?"#27e0d0":"#7d86b8");ctx.lineWidth=1.3;
   const rr=10+Math.sin(G.t*6)*2;ctx.beginPath();ctx.arc(mx,my,rr,0,7);ctx.stroke();
@@ -518,14 +652,24 @@ function drawHealth(){const h=G.health;if(h<0.995){ctx.save();ctx.globalAlpha=(1
   ctx.strokeRect(3,3,W-6,H-6);ctx.restore();}}
 
 // ---------- flow ----------
-function startGame(){
-  audio();if(AC&&AC.state==="suspended")AC.resume();
+function resetState(){
   Object.assign(G,{state:"play",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
     charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
-    spawnT:0,health:1,shake:0,lastSound:0});
+    spawnT:0,health:1,shake:0,lastSound:0,grace:0,tut:null});
   $("lvlv").textContent="1";texts.length=0;
   $("intro").classList.remove("show");$("over").classList.remove("show");
-  spawnMark();spawnMark();
+  coach("",""); dimHud(false);
+}
+function startTaught(){
+  audio();if(AC&&AC.state==="suspended")AC.resume();
+  resetState();
+  G.tut=makeTutorial(); dimHud(true);
+}
+function startStraight(){
+  audio();if(AC&&AC.state==="suspended")AC.resume();
+  resetState();
+  G.grace=4; spawnMark(false,{still:true}); spawnMark(false,{still:true});
+  toast("BEGIN","clear the marks · keep the chain","#27e0d0");
 }
 function gameOver(){
   G.state="over";
@@ -533,26 +677,27 @@ function gameOver(){
   const beat=G.score>META.best; if(beat){META.best=G.score;localStorage.setItem("phase_best",META.best);}
   const before=unlockedAt(META.peakLevel);
   if(G.level>META.peakLevel){META.peakLevel=G.level;localStorage.setItem("phase_peaklvl",META.peakLevel);}
-  const after=unlockedAt(META.peakLevel);
-  const fresh=after.filter(k=>!before.includes(k));
+  const after=unlockedAt(META.peakLevel); const fresh=after.filter(k=>!before.includes(k));
   $("finalScore").textContent=G.score.toLocaleString();
   $("bestScore").textContent=META.best.toLocaleString();
-  $("finalLvl").textContent=G.level;
-  $("finalChain").textContent="×"+G.peakChain;
+  $("finalLvl").textContent=G.level; $("finalChain").textContent="×"+G.peakChain;
   $("rankLine").textContent=rankFor(META.best)+(beat?" · new best":"");
   const list=$("unlockList"); list.innerHTML="";
   for(const u of UNLOCKS){const on=META.peakLevel>=u.lvl;const isNew=fresh.includes(u.key);
     const d=document.createElement("div");d.className="chip"+(on?(isNew?" new":" on"):"");
     d.textContent=on?u.label:("? L"+u.lvl);list.appendChild(d);}
-  $("overTip").textContent = fresh.length? "new mechanic unlocked — go again to use it"
-    : (G.peakChain>12? "your phase sense is sharp. push the strata."
-    : "stagger sources so fronts arrive together — that's the whole game.");
+  $("overTip").textContent=fresh.length?"new mechanic unlocked — go again to use it"
+    :(G.peakChain>12?"your phase sense is sharp. push the strata."
+    :"hover before you click — the dashed line shows what you'll hit.");
   $("over").classList.add("show");
   blip(140,0.6,"sine",0.12);setTimeout(()=>blip(105,0.7,"sine",0.10),120);bass(55,0.8);
 }
 
-$("startBtn").addEventListener("click",startGame);
-$("againBtn").addEventListener("click",startGame);
+$("startBtn").addEventListener("click",startTaught);
+$("skipBtn").addEventListener("click",startStraight);
+$("againBtn").addEventListener("click",()=> META.taught?startStraight():startTaught());
+// returning players who've been taught get straight in
+if(META.taught){$("startBtn").textContent="Enter the field";}
 requestAnimationFrame(frame);
 })();
 </script>
