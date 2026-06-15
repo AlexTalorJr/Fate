@@ -45,8 +45,8 @@
   .coach .c2{font-size:12px;letter-spacing:.16em;color:var(--cyan);text-transform:uppercase;margin-top:7px}
 
   .scrim{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
-    background:radial-gradient(120% 120% at 50% 35%,rgba(12,19,38,.85),rgba(5,6,15,.97));
-    backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .45s ease}
+    background:radial-gradient(120% 120% at 50% 35%,rgba(12,19,38,.92),rgba(5,6,15,.985));
+    opacity:0;pointer-events:none;transition:opacity .45s ease}
   .scrim.show{opacity:1;pointer-events:auto}
   .panel{max-width:600px;width:90%;text-align:center;padding:8px}
   .title{font-size:clamp(56px,14vw,140px);font-weight:700;letter-spacing:.14em;line-height:.88;
@@ -74,6 +74,22 @@
   .chip.on{color:var(--cyan);border-color:var(--cyan)}
   .chip.new{color:var(--amber);border-color:var(--amber);animation:pulse 1.4s ease-in-out infinite}
   .rank{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--violet);margin-bottom:14px}
+  .verdict{font-size:15px;letter-spacing:.04em;color:var(--ink);margin:-6px auto 22px;max-width:440px;line-height:1.6}
+  .verdict b{color:var(--amber);font-weight:600}
+  .medals{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin:0 auto 20px;max-width:480px}
+  .medal{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:8px 13px;border-radius:8px;
+    border:1px solid var(--line);color:var(--ink);background:rgba(120,140,220,.06);display:flex;gap:8px;align-items:center}
+  .medal .ic{font-size:13px}
+  .medal.gold{border-color:var(--amber);color:var(--amber);box-shadow:0 0 18px rgba(255,193,77,.18)}
+  .medal.cyan{border-color:var(--cyan);color:var(--cyan)}
+  .medal.violet{border-color:var(--violet);color:var(--violet)}
+  .confetti{position:fixed;inset:0;z-index:11;pointer-events:none;overflow:hidden}
+  .confetti i{position:absolute;top:-12px;width:8px;height:14px;border-radius:2px;opacity:0;
+    animation:fall var(--d,2.4s) ease-in var(--delay,0s) forwards}
+  @keyframes fall{0%{opacity:0;transform:translateY(-20px) rotate(0)}
+    8%{opacity:1}100%{opacity:0;transform:translateY(102vh) rotate(720deg)}}
+  #overTitle.win{background:linear-gradient(120deg,var(--amber),var(--magenta) 60%,var(--violet));
+    filter:drop-shadow(0 2px 24px rgba(255,77,141,.35))}
 
   .keyhint{position:fixed;left:18px;bottom:54px;z-index:5;font-size:10px;letter-spacing:.13em;color:var(--dim);
     pointer-events:none;line-height:1.8;text-transform:uppercase;opacity:.6;transition:opacity .4s}
@@ -130,19 +146,24 @@
 <div class="scrim" id="over">
   <div class="panel">
     <div class="rank" id="rankLine"></div>
-    <div class="title" style="font-size:clamp(40px,10vw,96px)">DECOHERED</div>
+    <div class="title" id="overTitle" style="font-size:clamp(40px,10vw,96px)">DECOHERED</div>
     <div class="tag" id="overTag">the field lost phase</div>
+    <div class="verdict" id="verdict"></div>
     <div class="row">
       <div class="big"><span>Score</span><span class="n" id="finalScore">0</span></div>
       <div class="big hl"><span>Best</span><span class="n" id="bestScore">0</span></div>
       <div class="big"><span>Strata</span><span class="n" id="finalLvl">1</span></div>
       <div class="big"><span>Peak chain</span><span class="n" id="finalChain">1</span></div>
     </div>
+    <div class="medals" id="medals"></div>
     <div class="unlocks" id="unlockList"></div>
-    <button class="btn" id="againBtn">Re-enter</button>
+    <button class="btn pulse" id="againBtn">Re-enter</button>
     <div class="fine" id="overTip"></div>
   </div>
 </div>
+
+<!-- new-best celebration burst layer -->
+<div class="confetti" id="confetti"></div>
 
 <script>
 "use strict";
@@ -165,8 +186,8 @@ const CFG={
   FRONT_BAND:30,        // px tolerance for a front "passing" a mark
   CHARGE_REGEN:0.42,    // per second
   CHARGE_REFUND:0.20,   // per successful hit
-  HEALTH_REGEN:0.018,
-  HEALTH_HIT:0.16,      // damage when a mark decoheres
+  HEALTH_REGEN:0.008,
+  HEALTH_HIT:0.2,      // damage when a mark decoheres
   HEALTH_REWARD:0.04,
   CHAIN_WINDOW:2.6,
   CRIT_CHANCE:0.16,     // variable reward
@@ -420,6 +441,7 @@ function unlockedAt(p){return UNLOCKS.filter(u=>p>=u.lvl).map(u=>u.key);}
 const G={state:"intro",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
   charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
   spawnT:0,health:1,shake:0,lastSound:0,grace:0,
+  stat:{focuses:0,crits:0,supers:0,pures:0,bestHit:0,missed:0,runStart:0},
   tut:null}; // tutorial controller or null
 
 let mx=W/2,my=H/2,shiftHeld=false,hasMouse=false;
@@ -446,6 +468,7 @@ function dropSource(forceTone){
     for(const m of G.marks){const d=(m.x-mx)**2+(m.y-my)**2;if(d<nd){nd=d;near=m;}}
     if(near&&Math.sqrt(nd)<280)tone=near.tone;}
   G.sources.push({x:mx,y:my,born:G.t,tone,over:shiftHeld});
+  if(G.sources.length>14)G.sources.shift();   // hard cap keeps render cost flat
   blip(C.TONES[tone].freq*0.5,0.09,"sine",0.10);
   burst(mx,my,C.TONES[tone].rgb,10,40);
   return true;
@@ -510,6 +533,9 @@ function doHit(m,hit){
   let label=(hit.pure?"PURE ":"")+"+"+gain;
   if(crit)label="CRIT "+label; if(m.isSuper)label="SUPER "+label;
   popText(m.x,m.y,label,(m.isSuper||crit)?"#fff":C.TONES[m.tone].c,big?20:15);
+  // per-run stats for the end screen
+  if(!G.tut){const st=G.stat; st.focuses++; if(crit)st.crits++; if(m.isSuper)st.supers++;
+    if(hit.pure)st.pures++; if(gain>st.bestHit)st.bestHit=gain;}
   const now=performance.now();
   if(now-G.lastSound>30){chord(C.TONES[m.tone].freq*(crit?1.5:1),Math.min(hit.contributors+(big?2:0),5),crit?"sawtooth":"triangle");if(big)bass(70,0.4);G.lastSound=now;}
   if(G.tut)G.tut.onHit(m);
@@ -645,7 +671,7 @@ function update(dt){
   if(decohered.length&&!G.tut){
     for(const m of decohered){
       const dmg=C.CFG.HEALTH_HIT*(G.over?1.7:1)*(m.isSuper?1.5:1);
-      G.health-=dmg; G.chain=1; G.shake=Math.min(G.shake+10,18);
+      G.health-=dmg; G.chain=1; G.shake=Math.min(G.shake+10,18); G.stat.missed++;
       flashScreen("#ff4d8d"); burst(m.x,m.y,[255,77,141],16,120); blip(110,0.25,"sawtooth",0.12);}
     G.marks=G.marks.filter(m=>m.life>0);
   }
@@ -667,11 +693,11 @@ function update(dt){
   $("scorev").textContent=Math.round(G.disp).toLocaleString();
   $("combov").textContent="×"+G.chain;
   $("combo").classList.toggle("hot",G.chain>=8);
+  $("overlab").textContent=shiftHeld?"OVERCHARGE ×2":(G.chain>=12?"FLOW":"");
   $("chainfill").style.width=(G.chainTimer>0?(G.chainTimer/C.CFG.CHAIN_WINDOW*100):0)+"%";
   $("charge").style.width=(G.charge*100)+"%";
   $("chargeOver").style.opacity=shiftHeld?"1":"0";
   $("chargeOver").style.width=(G.charge*100)+"%";
-  $("overlab").textContent=shiftHeld?"OVERCHARGE ×2":"";
 }
 
 // ---------- render ----------
@@ -681,6 +707,16 @@ function render(dt){
   if(G.state!=="intro")drawField();
   ctx.setTransform(DPR,0,0,DPR,ox*DPR,oy*DPR);
   ctx.clearRect(-30,-30,W+60,H+60); ctx.fillStyle="#05060f"; ctx.fillRect(-30,-30,W+60,H+60);
+  // FLOW STATE: deep chain bathes the field in warm light — the transcendence carrot
+  const flow=Math.max(0,Math.min(1,(G.chain-8)/16));
+  if(flow>0 && G.state==="play"){
+    const g=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.hypot(W,H)/1.5);
+    const pulse=0.5+Math.sin(G.t*5)*0.5;
+    g.addColorStop(0,`rgba(255,193,77,${0.05*flow*(0.6+pulse*0.4)})`);
+    g.addColorStop(0.5,`rgba(154,107,255,${0.04*flow})`);
+    g.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  }
   drawGrid();
   if(G.state==="play"||G.state==="over"){
     drawAbsorbers(); drawMarks(); drawPrediction(); drawSources(); drawCrossings(); drawShock(); drawFoci();
@@ -690,23 +726,35 @@ function render(dt){
 function drawGrid(){ctx.strokeStyle="rgba(120,140,220,.05)";ctx.lineWidth=1;const g=64;ctx.beginPath();
   for(let x=0;x<=W;x+=g){ctx.moveTo(x,0);ctx.lineTo(x,H);}for(let y=0;y<=H;y+=g){ctx.moveTo(0,y);ctx.lineTo(W,y);}ctx.stroke();}
 
-const tmp=document.createElement("canvas"), tctx=tmp.getContext("2d");
+// FIELD: draw the expanding rings themselves as additive glowing strokes.
+// Cost is O(sources), independent of resolution — this is what keeps FPS flat
+// no matter how deep you get. (The old per-pixel field was the source of the slowdown.)
 function drawField(){
   if(!G.sources.length)return;
-  const step=10, cols=Math.ceil(W/step)+1, rows=Math.ceil(H/step)+1;
-  if(tmp.width!==cols||tmp.height!==rows){tmp.width=cols;tmp.height=rows;}
-  const img=tctx.createImageData(cols,rows), d=img.data;
-  for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
-    const v=C.fieldAt(i*step,j*step,G.t,G.sources,G.absorbers,G.level);
-    const idx=(j*cols+i)*4; const a=Math.max(0,v); const hot=Math.min(1,a*0.85);
-    d[idx]=Math.min(255,60*hot+200*hot*hot*hot);
-    d[idx+1]=Math.min(255,150*hot+150*hot*hot*hot);
-    d[idx+2]=Math.min(255,180*hot+255*hot*hot);
-    d[idx+3]=Math.min(220,hot*230);}
-  tctx.putImageData(img,0,0);
-  fctx.save();fctx.scale(DPR,DPR);fctx.globalCompositeOperation="lighter";
-  fctx.imageSmoothingEnabled=true;fctx.globalAlpha=0.9;
-  fctx.drawImage(tmp,0,0,cols,rows,0,0,cols*step,rows*step);fctx.restore();
+  const spd=C.speedForLevel(G.level);
+  fctx.save();
+  fctx.scale(DPR,DPR);
+  fctx.globalCompositeOperation="lighter";
+  for(const s of G.sources){
+    const r=C.frontRadius(s,G.t,spd);
+    if(r<0)continue;
+    const decay=C.sourceDecay(s,G.t);
+    const t=C.TONES[s.tone];
+    // leading front: bright ring
+    const a=decay*0.5;
+    fctx.globalAlpha=a;
+    fctx.strokeStyle=`rgb(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]})`;
+    fctx.lineWidth=2.2;
+    fctx.beginPath();fctx.arc(s.x,s.y,r,0,7);fctx.stroke();
+    // a couple of trailing ripples for texture (cheap, fixed count)
+    fctx.globalAlpha=a*0.4;
+    fctx.lineWidth=1.2;
+    for(let k=1;k<=2;k++){
+      const rr=r-k*C.CFG.WAVELENGTH;
+      if(rr>2){fctx.beginPath();fctx.arc(s.x,s.y,rr,0,7);fctx.stroke();}
+    }
+  }
+  fctx.restore();
 }
 
 // LIVE CROSSINGS: draw the moving points where two live fronts currently intersect.
@@ -833,9 +881,13 @@ function drawHealth(){const h=G.health;if(h<0.995){ctx.save();ctx.globalAlpha=(1
 function resetState(){
   Object.assign(G,{state:"play",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
     charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
-    spawnT:0,health:1,shake:0,lastSound:0,grace:0,tut:null});
+    spawnT:0,health:1,shake:0,lastSound:0,grace:0,
+    stat:{focuses:0,crits:0,supers:0,pures:0,bestHit:0,missed:0,runStart:performance.now()},
+    tut:null});
   $("lvlv").textContent="1";texts.length=0;
   $("intro").classList.remove("show");$("over").classList.remove("show");
+  $("overTitle").classList.remove("win");
+  const cf=$("confetti"); if(cf)cf.innerHTML="";
   coach("",""); dimHud(false);
 }
 function startTaught(){
@@ -849,26 +901,91 @@ function startStraight(){
   G.grace=4; spawnMark(false,{still:true}); spawnMark(false,{still:true});
   toast("BEGIN","clear the marks · keep the chain","#27e0d0");
 }
+// count-up animation for a number element
+function countUp(el,to,dur){
+  const start=performance.now(), from=0;
+  function step(now){const k=Math.min(1,(now-start)/dur);
+    const e=1-Math.pow(1-k,3);
+    el.textContent=Math.round(from+(to-from)*e).toLocaleString();
+    if(k<1)requestAnimationFrame(step);}
+  requestAnimationFrame(step);
+}
+function fireConfetti(){
+  const wrap=$("confetti"); wrap.innerHTML="";
+  const cols=["#27e0d0","#ff4d8d","#ffc14d","#9a6bff","#5dffa0"];
+  for(let i=0;i<70;i++){const s=document.createElement("i");
+    s.style.left=(Math.random()*100)+"vw";
+    s.style.background=cols[i%cols.length];
+    s.style.setProperty("--d",(1.8+Math.random()*1.8)+"s");
+    s.style.setProperty("--delay",(Math.random()*0.5)+"s");
+    s.style.width=(5+Math.random()*5)+"px"; s.style.height=(10+Math.random()*8)+"px";
+    wrap.appendChild(s);}
+  setTimeout(()=>{wrap.innerHTML="";},4200);
+}
+// build the medal set earned this run
+function computeMedals(){
+  const st=G.stat, out=[];
+  if(G.peakChain>=25)out.push({c:"gold",ic:"⛓",t:"Unbroken ×"+G.peakChain});
+  else if(G.peakChain>=12)out.push({c:"cyan",ic:"⛓",t:"Chain ×"+G.peakChain});
+  if(st.supers>0)out.push({c:"gold",ic:"✦",t:st.supers+" Superposition"+(st.supers>1?"s":"")});
+  if(st.crits>=5)out.push({c:"violet",ic:"✸",t:st.crits+" Crits"});
+  if(st.pures>=10)out.push({c:"cyan",ic:"◎",t:st.pures+" Pure"});
+  if(st.bestHit>=2000)out.push({c:"gold",ic:"★",t:"Big hit "+st.bestHit.toLocaleString()});
+  if(st.focuses>=40)out.push({c:"violet",ic:"❖",t:st.focuses+" Foci"});
+  if(st.missed===0&&st.focuses>=8)out.push({c:"gold",ic:"♦",t:"Flawless"});
+  if(G.level>=10)out.push({c:"cyan",ic:"▲",t:"Strata "+G.level});
+  return out.slice(0,6);
+}
+function verdictLine(){
+  const st=G.stat;
+  if(G.score>=META.best&&META.runs>1)return "A <b>new best</b>. The field bent to you.";
+  if(G.level>=12)return "You held phase deep into the field.";
+  if(G.peakChain>=20)return "That chain was a <b>thing of beauty</b>.";
+  if(st.supers>0)return "You cracked a <b>superposition</b>. Few do.";
+  if(st.missed===0&&st.focuses>0)return "Not a single mark slipped. <b>Clean</b>.";
+  if(G.score>3000)return "The rhythm was starting to click.";
+  return "Hover before you click — the line shows what you'll hit.";
+}
+
 function gameOver(){
   G.state="over";
   META.runs++; localStorage.setItem("phase_runs",META.runs);
-  const beat=G.score>META.best; if(beat){META.best=G.score;localStorage.setItem("phase_best",META.best);}
+  const beat=G.score>META.best&&G.score>0;
+  if(beat){META.best=G.score;localStorage.setItem("phase_best",META.best);}
   const before=unlockedAt(META.peakLevel);
   if(G.level>META.peakLevel){META.peakLevel=G.level;localStorage.setItem("phase_peaklvl",META.peakLevel);}
   const after=unlockedAt(META.peakLevel); const fresh=after.filter(k=>!before.includes(k));
-  $("finalScore").textContent=G.score.toLocaleString();
+
+  // a brief field-wide shock before the curtain (cinematic beat)
+  G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:beat?[255,193,77]:[255,77,141]});
+  G.shake=Math.min(G.shake+14,22);
+
+  $("overTitle").textContent=beat?"RESONANCE":"DECOHERED";
+  $("overTitle").classList.toggle("win",beat);
+  $("overTag").textContent=beat?"a new standing wave":"the field lost phase";
+  $("verdict").innerHTML=verdictLine();
+  countUp($("finalScore"),G.score,900);
   $("bestScore").textContent=META.best.toLocaleString();
   $("finalLvl").textContent=G.level; $("finalChain").textContent="×"+G.peakChain;
-  $("rankLine").textContent=rankFor(META.best)+(beat?" · new best":"");
+  $("rankLine").textContent=rankFor(META.best)+(beat?" · NEW BEST":"");
+
+  // medals
+  const medals=computeMedals(); const mEl=$("medals"); mEl.innerHTML="";
+  for(const md of medals){const d=document.createElement("div");d.className="medal "+md.c;
+    d.innerHTML=`<span class="ic">${md.ic}</span>${md.t}`;mEl.appendChild(d);}
+
   const list=$("unlockList"); list.innerHTML="";
   for(const u of UNLOCKS){const on=META.peakLevel>=u.lvl;const isNew=fresh.includes(u.key);
     const d=document.createElement("div");d.className="chip"+(on?(isNew?" new":" on"):"");
     d.textContent=on?u.label:("? L"+u.lvl);list.appendChild(d);}
   $("overTip").textContent=fresh.length?"new mechanic unlocked — go again to use it"
-    :(G.peakChain>12?"your phase sense is sharp. push the strata."
-    :"hover before you click — the dashed line shows what you'll hit.");
-  $("over").classList.add("show");
+    :(medals.length>=3?"strong run. one more?":"chain your focuses to climb the strata.");
+
+  // delay the curtain slightly so the final shock reads
+  setTimeout(()=>{ $("over").classList.add("show"); }, 260);
+  if(beat) setTimeout(fireConfetti, 420);
   blip(140,0.6,"sine",0.12);setTimeout(()=>blip(105,0.7,"sine",0.10),120);bass(55,0.8);
+  if(beat)setTimeout(()=>{chord(523,5,"triangle");bass(98,0.6);},420);
 }
 
 $("startBtn").addEventListener("click",startTaught);

@@ -18,8 +18,8 @@ const CFG={
   FRONT_BAND:30,        // px tolerance for a front "passing" a mark
   CHARGE_REGEN:0.42,    // per second
   CHARGE_REFUND:0.20,   // per successful hit
-  HEALTH_REGEN:0.018,
-  HEALTH_HIT:0.16,      // damage when a mark decoheres
+  HEALTH_REGEN:0.008,
+  HEALTH_HIT:0.2,      // damage when a mark decoheres
   HEALTH_REWARD:0.04,
   CHAIN_WINDOW:2.6,
   CRIT_CHANCE:0.16,     // variable reward

@@ -9,13 +9,13 @@ function ctx(){return new Proxy({},{get:(t,p)=>{
   if(p==="getBoundingClientRect")return ()=>({left:0,top:0,width:1280,height:720});
   return noop;},set:()=>true});}
 const els={};
-function el(id){return{id,style:{},classList:{add:noop,remove:noop,toggle:noop},textContent:"",innerHTML:"",
+function el(id){return{id,style:{setProperty:noop,removeProperty:noop},classList:{add:noop,remove:noop,toggle:noop},textContent:"",innerHTML:"",
   appendChild:noop,addEventListener(e,f){(this._ev=this._ev||{})[e]=f;},
   getBoundingClientRect:()=>({left:0,top:0,width:1280,height:720}),getContext:()=>ctx(),width:1280,height:720};}
 ["cField","c","lvlv","scorev","combov","combo","chainfill","charge","chargeOver","overlab","flash",
  "toast","toastT1","toastT2","coach","coach1","coach2","keyhint","hud","chargeWrap","startBtn","skipBtn",
  "againBtn","intro","over","finalScore","bestScore","finalLvl","finalChain","rankLine","overTag",
- "unlockList","overTip","lvl"].forEach(i=>els[i]=el(i));
+ "unlockList","overTip","lvl","verdict","medals","confetti","overTitle"].forEach(i=>els[i]=el(i));
 global.window={addEventListener(e,f){(this._ev=this._ev||{})[e]=f;},innerWidth:1280,innerHeight:720,devicePixelRatio:1};
 global.document={getElementById:i=>els[i]||el(i),createElement:()=>el("t"),addEventListener:noop};
 global.localStorage={_d:{},getItem(k){return this._d[k]??null;},setItem(k,v){this._d[k]=""+v;}};
