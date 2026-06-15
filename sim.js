@@ -1,4 +1,4 @@
-// sim.js — headless runtime test for PHASE. Mocks DOM/canvas/audio.
+// sim.js — headless runtime test for PHASE v5 (pulsars+resonance+surge). Mocks DOM/canvas/audio.
 const fs=require("fs");
 const html=fs.readFileSync(__dirname+"/index.html","utf8");
 const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
@@ -15,7 +15,8 @@ function el(id){return{id,style:{setProperty:noop,removeProperty:noop},classList
 ["cField","c","lvlv","scorev","combov","combo","chainfill","charge","chargeOver","overlab","flash",
  "toast","toastT1","toastT2","coach","coach1","coach2","keyhint","hud","chargeWrap","startBtn","skipBtn",
  "againBtn","intro","over","finalScore","bestScore","finalLvl","finalChain","rankLine","overTag",
- "unlockList","overTip","lvl","verdict","medals","confetti","overTitle"].forEach(i=>els[i]=el(i));
+ "unlockList","overTip","lvl","verdict","medals","confetti","overTitle",
+ "lifeWrap","lifefill","surge"].forEach(i=>els[i]=el(i));
 global.window={addEventListener(e,f){(this._ev=this._ev||{})[e]=f;},innerWidth:1280,innerHeight:720,devicePixelRatio:1};
 global.document={getElementById:i=>els[i]||el(i),createElement:()=>el("t"),addEventListener:noop};
 global.localStorage={_d:{},getItem(k){return this._d[k]??null;},setItem(k,v){this._d[k]=""+v;}};
@@ -58,6 +59,13 @@ for(let f=0;f<60*60*5;f++){ // 5 min
 const out={tutErrorsAndStress:errors.slice(0,8),errorCount:errors.length,
   taughtFlag:afterTut.taught, finalScore:els.scorev.textContent, level:els.lvlv.textContent,
   best:global.localStorage.getItem("phase_best"), runs:global.localStorage.getItem("phase_runs")};
+
+// v5 bug-fix guard: the v4 defect was that "Skip intro" did NOT persist taught, so the
+// tutorial reappeared after game over. startStraight() must set phase_taught=1.
+const taughtAfterSkip=global.localStorage.getItem("phase_taught");
+out.taughtAfterSkip=taughtAfterSkip;
+
 console.log(JSON.stringify(out,null,2));
-if(errors.length){console.log("\nSIM: FAILED");process.exit(1);}
-console.log("\nSIM: clean — tutorial + 5min stress, no runtime errors");
+if(errors.length){console.log("\nSIM: FAILED (runtime errors)");process.exit(1);}
+if(taughtAfterSkip!=="1"){console.log("\nSIM: FAILED — skip path did not persist taught flag (tutorial would reappear)");process.exit(1);}
+console.log("\nSIM: clean — tutorial + 5min stress, no runtime errors; taught flag persisted (no tutorial-reappear)");

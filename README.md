@@ -1,54 +1,66 @@
 # PHASE
 
-An interference field. You drop **ripple sources**; each sends a ring expanding
-outward. Where two rings cross, a bright **spark** appears — and that crossing
-point *moves* as the rings grow. Steer a spark onto a **target** to clear it.
+An interference field. You drop **pulsars**; each one emits an expanding ring on a
+steady beat for as long as it lives. Where two rings cross, a bright **spark**
+appears — and that crossing *moves* as the rings grow. Park a crossing on a
+**target** and it soaks **resonance** until it breaks.
 
 No bullet-hell, no enemy horde. You think in expanding wavefronts and moving
-intersections — something the genre hasn't done.
+intersections, and you keep a rhythm going — something the genre hasn't done.
 
-## What this version fixes & adds
+## Why v5 exists (what v4 got wrong)
 
-**The hang is gone.** The old build recomputed the wave field per-pixel across the
-whole screen every frame, looping over every live source — so the deeper you got,
-the slower it ran, collapsing to ~20fps and never recovering after a restart. The
-field is now drawn as ring strokes (cost scales with source count, not screen
-resolution), simultaneous sources are capped, and the expensive overlay blur is
-gone. Measured: **~20fps → a steady 58–60fps, no decay across restarts.**
+v4 didn't hook, and the diagnosis was structural, not cosmetic:
 
-**A finale worth losing for.**
-- Beating your best shows **RESONANCE** with a full-screen confetti burst and a
-  victory chord — not a flat "DECOHERED".
-- **Per-run medals**: Unbroken chain, Superposition, Crits, Pure, Flawless, Big hit,
-  Strata depth — earned from stats tracked each run.
-- A **verdict line** that reacts to how you played, an animated score count-up, and
-  a field-wide shock beat before the curtain drops.
+- **It was a planner, not a reflex.** You placed two one-shot sources and waited
+  ~1.5s for their rings to cross. That gap between action and reward is dead air.
+  Worse, two equal rings' crossing point flies through a target in a few frames, so
+  a "hit" was a single instant you couldn't feel building.
+- **No felt pressure.** Health drained abstractly and the loop was too slow to build
+  a big chain — so the main hook (fear of losing a fat multiplier) never fired.
+- **A bug:** after game over the tutorial popped up again, because "Skip intro"
+  never recorded that you'd been taught.
 
-**Flow State.** Chains of 12+ bathe the field in warm light with a FLOW indicator —
-the long-chain payoff feels like something.
+## What v5 changes
 
-**Stakes.** Idling now actually kills you (tuned health regen vs decoherence damage),
-so neglecting marks has consequences.
+- **Sources are pulsars.** Each live source re-emits a ring every ~0.92s, so the
+  field is a continuous, rhythmic lattice of moving crossings. You don't place-and-
+  wait — you keep a beat and steer the live crossings. The action is constant.
+- **Targets soak resonance.** A target fills from the *proximity* of the nearest
+  qualifying crossing and breaks when full, so a kill is a visible sweep you watch
+  build over ~1.5s — immediate feedback, not a one-frame coin-flip. A lone source,
+  or only wrong-tone sources, can never fill it.
+- **Surge rhythm.** The session breathes: calm windows, then surges that spawn marks
+  in bursts behind a "▲ surge incoming" banner. Tension rises and falls.
+- **A heartbeat you can hear.** A soft tick lands on every pulse boundary, so you
+  feel the tempo you're playing to.
+- **Bug fixed.** Skipping the intro now persists the "taught" flag — the tutorial
+  never reappears after a run.
+
+Everything that worked in v4 is kept: variable-reward crits (×3), loss-aversion
+chain timer, near-miss glow + chime, Shift-to-overcharge staking (×2.2), 3-source
+Superposition jackpots, ranks/medals/best, level + strata progression, and the
+RESONANCE / DECOHERED finales with confetti and a victory chord.
 
 ## How it plays
 
-The mechanic is **front intersections**: a focus exists wherever two live rings
-currently cross, and that crossing persists and sweeps as the rings expand. You
-place two sources, watch their rings overlap, and guide the crossing spark through
-a target. No frame-perfect timing — achievable and readable.
+A focus exists wherever two live rings cross; it persists and sweeps as the rings
+expand. Flank a target with two pulsars so a crossing sits on it, hold the beat, and
+watch its resonance arc fill. No frame-perfect timing — achievable and readable.
 
-- **Live crossing sparks** drawn as bright moving points — the core feedback
-- **Hover prediction** simulates forward and shows what you'll hit (green "WILL HIT")
-- **Hand-held tutorial** places two "DROP HERE" rings and walks you through a focus
-- **Soft start** grace period eases the opening
+- **Live crossing sparks** — bright moving points, the core feedback
+- **Resonance arc** on each target shows the kill building
+- **Hover prediction** simulates forward and shows what you'll hit ("WILL HIT")
+- **Hand-held tutorial** walks you through flanking a target with two pulsars
+- **Soft-start** grace eases the opening; **idling kills you** (decoherence damage)
 
 ## Controls
 
-- **Click / tap** — drop a ripple source
-- **Space** — re-phase every source into one synchronized burst
-- **Hold Shift** — overcharge (×2 score, ×2 miss cost)
-- Two rings crossing on a mark → focus → score
-- Same-tone sources → PURE bonus
+- **Click / tap** — drop a pulsar
+- **Space** — re-phase every pulsar into one synchronized burst
+- **Hold Shift** — overcharge (×2.2 score, higher miss cost)
+- Two rings crossing on a mark → resonance → break it to score
+- Same-tone pulsars → PURE bonus
 - Rare Superposition marks need 3 rings, pay big
 - A mark going dark = decoherence. Lose all coherence → DECOHERED.
 
@@ -59,16 +71,19 @@ Open `index.html` in any modern browser. No build, no dependencies, no assets.
 ## Tech / testing
 
 Single self-contained file (Canvas 2D + Web Audio). Logic lives in pure functions
-in `core.js`, mirrored byte-for-byte inside `index.html`.
+in `core.js`, mirrored byte-for-byte inside `index.html` (regenerated by the
+deterministic `assemble.py`, so parity is checkable any time).
 
-- `core.js` — pure logic (waves, circle-intersection focus detection, scoring,
-  progression, forward-simulating prediction)
-- `regress.js` — 45-assertion suite incl. the key test that staggered-timing drops
-  still score (`node regress.js`)
-- `sim.js` — headless DOM/canvas/audio mock that plays tutorial + 5 min of stress
-  (`node sim.js`)
+- `core.js` — pure logic: pulsar fronts, circle-intersection crossings, the
+  resonance integrator, scoring, progression, surge rhythm, forward-simulating
+  prediction
+- `regress.js` — 65-assertion suite incl. the key tests that two flanking pulsars
+  resonate a mark to full within ~2s while a single/wrong-tone source never does
+  (`node regress.js`)
+- `sim.js` — headless DOM/canvas/audio mock that plays the tutorial + 5 min of
+  stress and asserts the tutorial-reappear bug stays fixed (`node sim.js`)
 
-Verified: 45/45 unit assertions, byte-for-byte core parity with the embedded copy,
-full DOM-reference audit, clean headless sim, and a real headless-Chromium pass —
-zero console errors, finale renders, and a steady 58–60fps that holds across
-restarts.
+Verified: 65/65 unit assertions, byte-for-byte core parity with the embedded copy,
+clean headless sim (0 errors over 5 min), and a real headless-Chromium pass — zero
+console errors, finale renders, resonance clears targets in live play, the tutorial
+does not reappear after a restart, and a steady 59–60fps that holds across restarts.
