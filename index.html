@@ -163,6 +163,10 @@
   <div id="startScreen" class="screen">
     <div class="title">PHASE</div>
     <div class="tagline">Из центра расходится кольцо. Лови точку <b>в тот миг</b>, когда кольцо её касается.</div>
+    <div class="tagline" style="font-size:13px;opacity:.62;margin-top:-4px;max-width:440px">
+      Держишь чуть дольше — лок у края даёт <b style="color:#ffd24a">GREEDY</b> (больше очков, но рискованно).
+      <span style="color:#ffd24a">●</span> заряд&nbsp;×2 · <span style="color:#9fc2e6">◎</span> твин&nbsp;—&nbsp;лочь&nbsp;дважды · <span style="color:#fff6d6">✦</span> всплеск&nbsp;×2
+    </div>
     <div id="chips">
       <div class="chip" id="streakChip"><span class="chipIcon">🔥</span><span id="streakTxt">День 1</span></div>
       <div class="chip" id="goalChip"><span class="chipIcon">🎯</span><span id="goalTxt">Цель</span></div>
@@ -194,7 +198,11 @@
 
 <script>
 /* ============================================================
-   PHASE — v6 radial phase-lock.  One ring, ≤3 nodes, no clutter.
+   PHASE — v8 radial phase-lock + DEPTH layer.
+   Core idea unchanged (one ring, ≤3 nodes, "press when the ring touches the dot").
+   v8 adds the decision layer the live playtest said was missing:
+     · GREEDY edge-locks (risk/reward)   · charged nodes (priority choice)
+     · twin nodes (skill growth)          · surge node (surprise / rule-flip)
    Pure logic lives in PhaseCore (DOM-free, unit-tested in regress).
    ============================================================ */
 "use strict";
@@ -218,12 +226,28 @@ var PhaseCore = (function(){
     SCORE_BASE:100, CRIT_MULT:3, PURE_MULT:1.5,
     H_MAX:1.0, H_HIT:0.14, H_MISTAP:0.045,
     H_LOCK:0.012, H_REGEN:0.004,                    // per-event / per-second
+    // ---- v8 DEPTH LAYER (turns the reflex into a decision; core idea untouched) ----
+    // (b) RISK/REWARD — "greedy" lock: ride the ring PAST dead-centre, out to the
+    // trailing edge of the window, for up to +GREEDY_GAIN extra score. The reward
+    // ramps toward the cliff; one px too far = a real miss. PERFECT (centre) stays
+    // the clean ×3. So every lock is now a choice: safe ×3 vs risky ~×4.
+    GREEDY_GAIN:3.0,                                // max extra mult at the very cliff (→ ~×4 vs ×1 base)
+    GREEDY_NAME_FRAC:0.55,                           // gfrac above this is branded "GREEDY"
+    // (a) CHOICE — charged nodes: worth ×2 but VOLATILE (short life). Grab the gold
+    // before it decoheres, or defend a normal node that's dying — you can't always do both.
+    CHARGE_CHANCE:0.17, CHARGE_MULT:2, CHARGE_LIFE:0.62,
+    // (c) SKILL GROWTH — twin nodes: need TWO locks on two separate ring passes.
+    // Appear from TWIN_LEVEL, so the action at 50s (juggling twins) ≠ 5s (single taps).
+    TWIN_LEVEL:3, TWIN_CHANCE:0.24, TWIN_BONUS:2.2,
+    // (d) SURPRISE — surge node (rare ✦): locking it flips the rules for a few seconds
+    // — beat tightens, all score ×2. Big upside, but the faster ring can shatter your chain.
+    SURGE_LEVEL:2, SURGE_CHANCE:0.05, SURGE_DUR:4.5, SURGE_SCORE_MULT:2, SURGE_BEAT_MULT:0.8,
   };
   var TONES = ["cyan","magenta","amber","violet"];
 
   function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
   function lvlFloor(base,floor,step,level){ return Math.max(floor, base - step*(level-1)); }
-  function levelThreshold(level){ return level*6000 + level*level*2400; }
+  function levelThreshold(level){ return level*9000 + level*level*3600; } // v8: rebalanced for richer scoring
   function tonesForLevel(level){ return Math.min(4, 2 + Math.floor((level-1)/3)); }
 
   // Create a fresh game state. edgeR = playfield radius in px.
@@ -245,7 +269,9 @@ var PhaseCore = (function(){
       refillTimer: 0.25,
       seed: 1234567,
       alive:true,
-      stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0},
+      surge:0,                         // seconds of active "phase surge" (v8 surprise layer)
+      stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0,
+             greedy:0, twins:0, surges:0},
       // event log for the renderer to react to (consumed each frame)
       events:[],
     };
@@ -253,7 +279,11 @@ var PhaseCore = (function(){
 
   function rng(s){ s.seed = (s.seed*1103515245 + 12345) & 0x7fffffff; return s.seed/0x7fffffff; }
 
-  function beatLen(s){ return lvlFloor(CFG.BEAT, CFG.BEAT_FLOOR, CFG.BEAT_STEP, s.level); }
+  function beatLen(s){
+    var b = lvlFloor(CFG.BEAT, CFG.BEAT_FLOOR, CFG.BEAT_STEP, s.level);
+    if(s.surge>0) b *= CFG.SURGE_BEAT_MULT;   // surge = faster ring, more pressure
+    return b;
+  }
   function windowPx(s){ return lvlFloor(CFG.WINDOW, CFG.WINDOW_FLOOR, CFG.WINDOW_STEP, s.level); }
   function nodeLife(s){ return lvlFloor(CFG.NODE_LIFE, CFG.NODE_LIFE_FLOOR, 0.42, s.level); }
   function spawnGap(s){ return lvlFloor(CFG.SPAWN, CFG.SPAWN_FLOOR, 0.16, s.level); }
@@ -303,16 +333,33 @@ var PhaseCore = (function(){
       }
       rtries++;
     } while(!rok && rtries<8);
-    s.nodes.push({
+    var life0 = nodeLife(s);
+    var nd = {
       ang: ang,
       rFrac: rf,
       tone: TONES[Math.floor(rng(s)*n)],
-      life: nodeLife(s),
-      maxLife: nodeLife(s),
+      life: life0,
+      maxLife: life0,
       born: s.t,
       hit:false,
+      kind:"normal",        // "normal" | "twin" | "surge"
+      charged:false,        // gold, ×2 but volatile
+      locksNeeded:1,
+      locksDone:0,
       // pop animation handled by renderer via events
-    });
+    };
+    // --- v8: assign a special role (mutually exclusive), then maybe charge a normal one ---
+    var hasSurge=false;
+    for(var k=0;k<s.nodes.length;k++){ if(s.nodes[k].kind==="surge"){ hasSurge=true; break; } }
+    if(s.level>=CFG.SURGE_LEVEL && !hasSurge && s.surge<=0 && rng(s) < CFG.SURGE_CHANCE){
+      nd.kind="surge";
+    } else if(s.level>=CFG.TWIN_LEVEL && rng(s) < CFG.TWIN_CHANCE){
+      nd.kind="twin"; nd.locksNeeded=2;
+    } else if(rng(s) < CFG.CHARGE_CHANCE){
+      nd.charged=true;                          // volatile: shorter fuse, bigger payout
+      nd.life = life0*CFG.CHARGE_LIFE; nd.maxLife = nd.life;
+    }
+    s.nodes.push(nd);
   }
 
   // advance simulation by dt seconds
@@ -320,6 +367,12 @@ var PhaseCore = (function(){
     if(!s.alive) return;
     s.t += dt;
     s.events.length = 0;
+
+    // --- v8 surge timer: brief rule-flip after locking a surge node ---
+    if(s.surge>0){
+      s.surge -= dt;
+      if(s.surge<=0){ s.surge=0; s.events.push({type:"surgeend"}); }
+    }
 
     // --- ring travels center -> edge over one beat, then resets ---
     var bl = beatLen(s);
@@ -397,9 +450,12 @@ var PhaseCore = (function(){
   function resolveHit(s, idx){
     var nd = s.nodes[idx];
     var win = windowPx(s);
-    var err = nodeError(s, nd);
+    var nr = nodeRadius(s, nd);
+    var d = s.ring - nr;             // signed: <0 ring still approaching, >0 ring already leaving
+    var err = d<0 ? -d : d;
     if(err > win){
-      // mistimed press on a node -> break chain, small penalty
+      // mistimed press on a node -> break chain, small penalty.
+      // (a half-locked TWIN dies here too: gambling on the 2nd pass and whiffing costs you)
       s.chain = 0; s.chainTimer = 0;
       s.health = clamp(s.health - CFG.H_MISTAP, 0, CFG.H_MAX);
       s.stats.miss++;
@@ -407,16 +463,44 @@ var PhaseCore = (function(){
       if(s.health<=0){ die(s); }
       return {result:"miss"};
     }
-    // hit!
-    var crit = err <= win*CFG.CRIT_FRAC;
+    // hit! --- v8 timing identity: centre = PERFECT (clean ×3),
+    // trailing edge = GREEDY (ride past centre for up to ~×4, but the cliff = a miss),
+    // approaching edge = plain lock (you jumped early; safe but only ×1).
+    var critEdge = win*CFG.CRIT_FRAC;
+    var crit = err <= critEdge;
     var pure = nd.tone === ringTone(s);
-    var mult = 1;
-    if(crit){ mult *= CFG.CRIT_MULT; s.stats.perfect++; }
-    else { s.stats.good++; }
+    var mult = 1, kindLabel = "good", greedyFrac = 0;
+    if(crit){
+      mult *= CFG.CRIT_MULT; s.stats.perfect++; kindLabel = "perfect";
+    } else if(d > 0){
+      greedyFrac = clamp((err - critEdge)/(win - critEdge), 0, 1);  // 0..1 toward the cliff
+      mult *= 1 + CFG.GREEDY_GAIN*greedyFrac;
+      if(greedyFrac >= CFG.GREEDY_NAME_FRAC){ s.stats.greedy++; kindLabel = "greedy"; }
+    } // else: early lock on the approaching side -> ×1 "good"
     if(pure){ mult *= CFG.PURE_MULT; s.stats.pure++; }
+    if(nd.charged){ mult *= CFG.CHARGE_MULT; }
 
+    // --- TWIN, 1st lock: ARM it (kept alive for a second ring pass), pay a small advance ---
+    if(nd.kind==="twin" && (nd.locksDone+1) < nd.locksNeeded){
+      nd.locksDone++;
+      nd.life = nodeLife(s); nd.maxLife = nd.life;          // refresh fuse for the 2nd pass
+      var armBonus = 1 + s.chain*CFG.CHAIN_MULT;
+      var armGain = Math.round(CFG.SCORE_BASE * mult * 0.5 * armBonus);
+      if(s.surge>0) armGain = Math.round(armGain*CFG.SURGE_SCORE_MULT);
+      s.score += armGain;
+      s.chain++; s.chainTimer = chainHold(s);
+      if(s.chain > s.stats.maxChain) s.stats.maxChain = s.chain;
+      s.health = clamp(s.health + CFG.H_LOCK*0.5, 0, CFG.H_MAX);
+      s.events.push({type:"twinarm", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone,
+                     gained:armGain, chain:s.chain});
+      return {result:"twinarm", gained:armGain, chain:s.chain};
+    }
+
+    // --- completing lock (normal / charged / surge / twin's 2nd lock) ---
+    if(nd.kind==="twin"){ mult *= CFG.TWIN_BONUS; s.stats.twins++; }
     var chainBonus = 1 + s.chain*CFG.CHAIN_MULT;
     var gained = Math.round(CFG.SCORE_BASE * mult * chainBonus);
+    if(s.surge>0) gained = Math.round(gained*CFG.SURGE_SCORE_MULT);
     s.score += gained;
     s.chain++;
     s.chainTimer = chainHold(s);
@@ -424,10 +508,19 @@ var PhaseCore = (function(){
     s.stats.locks++;
     s.health = clamp(s.health + CFG.H_LOCK, 0, CFG.H_MAX);
 
+    // --- SURGE node: locking it flips the rules for a few seconds (faster ring, ×2 score) ---
+    var triggeredSurge = false;
+    if(nd.kind==="surge"){
+      s.surge = CFG.SURGE_DUR; s.stats.surges++; triggeredSurge = true;
+      s.events.push({type:"surgestart", dur:CFG.SURGE_DUR});
+    }
+
     s.nodes.splice(idx,1);
     s.events.push({type:"lock", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone, crit:crit, pure:pure,
-                   gained:gained, chain:s.chain});
-    return {result: crit?"perfect":"good", pure:pure, gained:gained, chain:s.chain};
+                   gained:gained, chain:s.chain, label:kindLabel, greedy:greedyFrac,
+                   charged:!!nd.charged, kind:nd.kind, surge:triggeredSurge});
+    return {result: crit?"perfect":(kindLabel==="greedy"?"greedy":"good"),
+            pure:pure, gained:gained, chain:s.chain, charged:!!nd.charged, kind:nd.kind};
   }
 
   // Player pressed Space (auto-target). Returns result or null (empty press).
@@ -893,7 +986,11 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       verdict.style.textShadow="0 0 30px rgba(255,79,216,.4)";
     }
     es.textContent = G.score;
-    el.textContent = "LEVEL "+G.level+"  ·  ЦЕПЬ ×"+st.maxChain+"  ·  PERFECT "+st.perfect;
+    var extra="";
+    if(st.greedy>0) extra+="  ·  GREEDY "+st.greedy;
+    if(st.twins>0)  extra+="  ·  TWIN "+st.twins;
+    if(st.surges>0) extra+="  ·  ВСПЛЕСК "+st.surges;
+    el.textContent = "LEVEL "+G.level+"  ·  ЦЕПЬ ×"+st.maxChain+"  ·  PERFECT "+st.perfect+extra;
 
     /* ---- META: leaderboard, rank, overtakes, unlocks (retention payoff) ---- */
     // how many players did this run pass vs the player's PREVIOUS best?
@@ -952,6 +1049,22 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   }
 
   /* ---------- event consumption (juice) ---------- */
+  /* ---------- v8 depth-layer renderer state ---------- */
+  var GOLD="#ffd24a", SURGE_HEX="#fff6d6";
+  var seenCharged=false, seenTwin=false, seenSurge=false;   // one-time onboarding toasts
+  var surgeFlashT=0;                                        // HUD pulse while a surge runs
+  function surgeSound(up){
+    if(!AC) return;
+    var f0 = up?330:740, f1 = up?740:330;
+    var o=AC.createOscillator(), g=AC.createGain();
+    o.type="sawtooth"; o.frequency.setValueAtTime(f0, AC.currentTime);
+    o.frequency.exponentialRampToValueAtTime(f1, AC.currentTime+0.35);
+    g.gain.setValueAtTime(0.0001, AC.currentTime);
+    g.gain.linearRampToValueAtTime(0.22, AC.currentTime+0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+0.4);
+    o.connect(g); g.connect(master); o.start(); o.stop(AC.currentTime+0.42);
+  }
+
   function consumeEvents(){
     for(var i=0;i<G.events.length;i++){
       var e=G.events[i];
@@ -960,17 +1073,41 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       if(e.type==="beat"){ tick(); }
       else if(e.type==="lock"){
         var hex=TONE_HEX[e.tone];
+        var fx = e.charged?GOLD:hex;               // charged locks throw gold sparks
         if(e.crit){
-          burst(pos.x,pos.y,hex,16,7,true);
-          burst(CX,CY,hex,8,5,false);
-          shock(hex); addKick(9); chord(TONE_FREQ[e.tone], e.chain);
-          if(e.chain>=5 && e.chain%5===0) showToast("×"+e.chain, hex);
+          burst(pos.x,pos.y,fx,e.charged?22:16,7,true);
+          burst(CX,CY,fx,8,5,false);
+          shock(e.charged?GOLD:hex); addKick(9); chord(TONE_FREQ[e.tone], e.chain);
+          if(e.kind==="twin") showToast("TWIN ×"+C.CFG.TWIN_BONUS, GOLD);
+          else if(e.charged) showToast("ЗАРЯД ×2", GOLD);
+          else if(e.chain>=5 && e.chain%5===0) showToast("×"+e.chain, hex);
           else showToast("PERFECT", hex);
+        } else if(e.label==="greedy"){
+          // GREEDY edge-lock: gold pop + a brighter kick, the "I dared it" payoff
+          burst(pos.x,pos.y,GOLD,14,8,true);
+          shock(GOLD); addKick(7); chord(TONE_FREQ[e.tone]*1.5, e.chain);
+          showToast("GREEDY", GOLD);
         } else {
-          burst(pos.x,pos.y,hex,9,5,false);
+          burst(pos.x,pos.y,fx,9,5,false);
           addKick(4); tone(TONE_FREQ[e.tone], 0.16, e.pure?"triangle":"sine", 0.26);
+          if(e.charged) showToast("ЗАРЯД ×2", GOLD);
+        }
+        if(e.surge){
+          // locking the surge node — kick off the frenzy
+          surgeFlashT=1; surgeSound(true); addKick(12);
+          showToast("⚡ ФАЗА-ВСПЛЕСК ×2", SURGE_HEX);
+          for(var b=0;b<3;b++) burst(CX,CY,["#39e6ff","#ff4fd8","#ffc24b"][b],14,9,true);
         }
       }
+      else if(e.type==="twinarm"){
+        // first lock of a twin: pulse + a hint it needs one more pass
+        if(pos){ burst(pos.x,pos.y,GOLD,8,5,false); }
+        addKick(4); tone(TONE_FREQ[e.tone]*0.75,0.12,"triangle",0.2);
+        showToast("×2 — ЕЩЁ РАЗ", GOLD);
+        if(!seenTwin){ seenTwin=true; setTimeout(function(){ showRankPop("TWIN: лочь дважды за 2 прохода"); },650); }
+      }
+      else if(e.type==="surgestart"){ /* visual handled via e.surge on the lock */ }
+      else if(e.type==="surgeend"){ surgeFlashT=0; surgeSound(false); }
       else if(e.type==="miss" || e.type==="emptypress"){ addKick(3); tone(120,0.12,"sawtooth",0.12); }
       else if(e.type==="decohere"){
         if(pos) burst(pos.x,pos.y,"#ff4fd8",10,4,false);
@@ -981,6 +1118,14 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         if(AC){ tone(659.25,0.18,"triangle",0.3); tone(987.77,0.22,"sine",0.18); }
       }
       else if(e.type==="death"){ /* handled by loop */ }
+    }
+    // one-time onboarding hints when a special node first appears on screen
+    if(G && G.nodes){
+      for(var n=0;n<G.nodes.length;n++){
+        var nd=G.nodes[n];
+        if(!seenCharged && nd.charged){ seenCharged=true; showRankPop("ЗАРЯД (золотой): ×2, но гаснет быстрее"); }
+        if(!seenSurge && nd.kind==="surge"){ seenSurge=true; showRankPop("✦ СПЕЦ-УЗЕЛ: лок = всплеск ×2"); }
+      }
     }
   }
 
@@ -1052,6 +1197,15 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       var pure = nd.tone === rtone;
       // anticipation: how close the ring is on its way IN to THIS node (uses its radius)
       var approach = C.clamp(1 - Math.abs(G.ring - nr)/(G.edgeR*0.42), 0, 1);
+      // --- v8 per-node state for richer reads ---
+      var signed = G.ring - nr;                              // >0 = ring leaving (greedy side)
+      var critEdge = win*C.CFG.CRIT_FRAC;
+      var greedyLive = inWin && signed>0 && err>critEdge;    // ring is in the GREEDY window NOW
+      var greedyFrac = greedyLive ? C.clamp((err-critEdge)/(win-critEdge),0,1) : 0;
+      var isCharged = !!nd.charged, isTwin = nd.kind==="twin", isSurge = nd.kind==="surge";
+      var armed = isTwin && nd.locksDone>0;                  // twin waiting for its 2nd pass
+      // node colour identity: charged = gold, surge = white-hot, else its tone
+      var nhex = isCharged ? GOLD : (isSurge ? SURGE_HEX : hex);
       ctx.globalCompositeOperation="lighter";
 
       // PER-NODE ORBIT HINT: a short faint arc at this node's radius, around the node,
@@ -1088,15 +1242,29 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         ctx.lineWidth=2; ctx.stroke(); ctx.globalAlpha=1;
       }
 
+      // GREEDY RIDE-ZONE HINT: a short gold arc just OUTSIDE the node's orbit marks the
+      // risky-but-richer band you can ride the ring into. Faint until ripe, flares gold
+      // the instant you're actually in the greedy window (teaches risk/reward by feel).
+      if(prox>0.15 && !crit){
+        var gzR = nr + win*0.62;
+        ctx.beginPath(); ctx.arc(CX,CY,gzR, nd.ang-0.32, nd.ang+0.32);
+        ctx.strokeStyle=GOLD;
+        ctx.globalAlpha = greedyLive ? (0.35+0.55*greedyFrac) : 0.12*prox;
+        ctx.lineWidth = greedyLive ? 2+greedyFrac*2 : 1.5;
+        ctx.shadowBlur = greedyLive ? 10+greedyFrac*16 : 0; ctx.shadowColor=GOLD;
+        ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+      }
+
       // CONVERGING APERTURE: a ring that races in from outside and snaps onto the
       // dot exactly at the perfect instant. This is the "NOW" signal.
       if(prox>0){
+        var apCol = crit ? "#ffffff" : (greedyLive ? GOLD : nhex);
         var apR = C.CFG.NODE_R + (1-prox)*36;
         ctx.beginPath(); ctx.arc(x,y,apR, 0,7);
-        ctx.strokeStyle = crit ? "#ffffff" : hex;
+        ctx.strokeStyle = apCol;
         ctx.globalAlpha = 0.3 + 0.7*prox;
-        ctx.lineWidth = 1.5 + prox*2.5;
-        ctx.shadowBlur = prox*26; ctx.shadowColor = crit?"#ffffff":hex;
+        ctx.lineWidth = 1.5 + prox*2.5 + greedyFrac*1.5;
+        ctx.shadowBlur = prox*26 + greedyFrac*16; ctx.shadowColor = apCol;
         ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
         // PURE hint: a second faint concentric ring when tone matches the sweep
         if(pure && prox>0.3){
@@ -1106,21 +1274,85 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         }
       }
 
-      // core dot — visible & colored even while waiting, blooms as the ring arrives
-      var dotR = C.CFG.NODE_R*(0.58 + prox*0.5);
-      ctx.beginPath(); ctx.arc(x,y,dotR,0,7);
-      ctx.fillStyle = hex;
-      ctx.globalAlpha = 0.6 + prox*0.4;
-      ctx.shadowBlur = 8 + prox*24; ctx.shadowColor = hex; ctx.fill();
-      ctx.shadowBlur=0; ctx.globalAlpha=1;
+      // SURGE NODE: a rare, unmistakable special — rotating 4-spike star + halo.
+      // It reads as "different, valuable, RARE" so the surprise lands when it appears.
+      if(isSurge){
+        var rot = G.t*2.2;
+        ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+        ctx.strokeStyle=SURGE_HEX; ctx.globalAlpha=0.85; ctx.lineWidth=2.2;
+        ctx.shadowBlur=18; ctx.shadowColor=SURGE_HEX;
+        for(var sp=0;sp<4;sp++){
+          var a=sp*Math.PI/2, L=C.CFG.NODE_R*(1.5+0.3*prox);
+          ctx.beginPath(); ctx.moveTo(Math.cos(a)*6,Math.sin(a)*6); ctx.lineTo(Math.cos(a)*L,Math.sin(a)*L); ctx.stroke();
+        }
+        ctx.restore(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+        // shimmering rainbow halo
+        ctx.beginPath(); ctx.arc(x,y,C.CFG.NODE_R+8+2*Math.sin(G.t*6),0,7);
+        ctx.strokeStyle=["#39e6ff","#ff4fd8","#ffc24b","#9b7bff"][Math.floor(G.t*4)%4];
+        ctx.globalAlpha=0.5+0.3*prox; ctx.lineWidth=2; ctx.stroke(); ctx.globalAlpha=1;
+      }
 
-      // crit flash: dot core goes white-hot at the perfect instant
-      if(crit){
-        ctx.beginPath(); ctx.arc(x,y,dotR*0.55,0,7);
-        ctx.fillStyle="#ffffff"; ctx.globalAlpha=0.95;
-        ctx.shadowBlur=18; ctx.shadowColor="#fff"; ctx.fill();
+      // CHARGED NODE: a counter-rotating gold double-ring so the gold target pops out
+      // of the field — it's the "grab me (×2) before I fade" prompt.
+      if(isCharged){
+        var cr2 = G.t*-3;
+        for(var dr=0; dr<2; dr++){
+          ctx.beginPath();
+          ctx.arc(x,y,C.CFG.NODE_R+6+dr*4, cr2+dr*1.3, cr2+dr*1.3+Math.PI*1.2);
+          ctx.strokeStyle=GOLD; ctx.globalAlpha=0.5+0.4*prox; ctx.lineWidth=2;
+          ctx.shadowBlur=10+prox*14; ctx.shadowColor=GOLD; ctx.stroke();
+        }
         ctx.shadowBlur=0; ctx.globalAlpha=1;
       }
+
+      // TWIN NODE: a second outline ring = "needs two locks". Once half-locked it
+      // pulses gold ("one more pass!") so committing-then-finishing is legible.
+      if(isTwin){
+        ctx.beginPath(); ctx.arc(x,y,C.CFG.NODE_R+ (armed?10:7),0,7);
+        ctx.strokeStyle = armed?GOLD:hex;
+        ctx.globalAlpha = armed ? (0.55+0.4*Math.abs(Math.sin(G.t*7))) : (0.4+0.3*prox);
+        ctx.lineWidth=2; ctx.shadowBlur=armed?14:0; ctx.shadowColor=GOLD;
+        ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+        // inner dashed look: two short ticks reading as "II"
+        ctx.strokeStyle=armed?GOLD:hex; ctx.globalAlpha=0.6; ctx.lineWidth=2;
+        for(var tk=-1; tk<=1; tk+=2){
+          ctx.beginPath();
+          ctx.arc(x,y,C.CFG.NODE_R+2, tk*0.5-0.18, tk*0.5+0.18); ctx.stroke();
+        }
+        ctx.globalAlpha=1;
+      }
+
+      // core dot — visible & colored even while waiting, blooms as the ring arrives.
+      // Tints gold the moment you're in the greedy window (live risk/reward read).
+      var dotHex = greedyLive ? GOLD : nhex;
+      var dotR = C.CFG.NODE_R*(0.58 + prox*0.5) * (isSurge?1.15:1) * (isCharged?1.08:1);
+      ctx.beginPath(); ctx.arc(x,y,dotR,0,7);
+      ctx.fillStyle = dotHex;
+      ctx.globalAlpha = 0.6 + prox*0.4;
+      ctx.shadowBlur = 8 + prox*24 + greedyFrac*14; ctx.shadowColor = dotHex; ctx.fill();
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
+
+      // flash: white-hot at PERFECT centre; gold-hot when ridden into the greedy band
+      if(crit || greedyFrac>0.4){
+        ctx.beginPath(); ctx.arc(x,y,dotR*0.55,0,7);
+        ctx.fillStyle = crit ? "#ffffff" : GOLD; ctx.globalAlpha=0.95;
+        ctx.shadowBlur=18; ctx.shadowColor=ctx.fillStyle; ctx.fill();
+        ctx.shadowBlur=0; ctx.globalAlpha=1;
+      }
+    }
+
+    // ---- SURGE overlay: gold vignette + countdown banner while a phase-surge runs ----
+    if(G.surge>0){
+      ctx.globalCompositeOperation="source-over";
+      var sg2 = ctx.createRadialGradient(CX,CY,edgeR*0.5, CX,CY,edgeR*1.15);
+      sg2.addColorStop(0,"rgba(0,0,0,0)");
+      sg2.addColorStop(1,"rgba(255,200,70,"+(0.10+0.06*Math.abs(Math.sin(G.t*6)))+")");
+      ctx.fillStyle=sg2; ctx.fillRect(0,0,W,H);
+      ctx.globalCompositeOperation="lighter";
+      ctx.textAlign="center"; ctx.fillStyle=SURGE_HEX;
+      ctx.font="700 15px Segoe UI, sans-serif"; ctx.globalAlpha=0.9;
+      ctx.fillText("⚡ ФАЗА-ВСПЛЕСК ×2  ·  "+G.surge.toFixed(1)+"s", CX, CY - edgeR + 14);
+      ctx.globalAlpha=1;
     }
 
     ctx.globalCompositeOperation="lighter";
