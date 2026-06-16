@@ -86,6 +86,55 @@
   #endLine{font-size:14px;color:var(--dim);letter-spacing:.16em;text-transform:uppercase;}
   #medal{font-size:46px;margin-bottom:6px;}
 
+  /* live rival chip under the score */
+  #rival{margin-top:7px;font-size:12px;color:var(--dim);letter-spacing:.06em;
+    opacity:0;transition:opacity .3s;white-space:nowrap;}
+  #rival b{color:#8fb4d8;font-weight:600;font-variant-numeric:tabular-nums;}
+  #rival.lead{color:var(--amber);} #rival.lead b{color:var(--amber);}
+
+  /* rank pop (mid-run "you passed X") — sits high so it never covers the board */
+  #rankPop{position:absolute;left:50%;top:18%;transform:translate(-50%,-50%) scale(.8);
+    font-size:clamp(15px,3.6vw,21px);font-weight:500;letter-spacing:.05em;
+    color:var(--amber);text-shadow:0 0 22px rgba(255,194,75,.6);
+    opacity:0;pointer-events:none;white-space:nowrap;z-index:5;}
+
+  /* start-screen chips */
+  #chips{display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;justify-content:center;}
+  .chip{display:flex;align-items:center;gap:7px;padding:8px 16px;border-radius:30px;
+    background:rgba(120,150,200,.08);border:1px solid rgba(120,150,200,.16);
+    font-size:13px;color:#9fc2e6;letter-spacing:.03em;}
+  .chip .chipIcon{font-size:14px;}
+  #streakChip{color:var(--amber);border-color:rgba(255,194,75,.28);background:rgba(255,194,75,.07);}
+
+  /* leaderboard panel */
+  .board{margin-top:26px;width:min(360px,86vw);
+    background:rgba(8,14,28,.5);border:1px solid rgba(120,150,200,.14);
+    border-radius:16px;padding:14px 8px 8px;backdrop-filter:blur(2px);}
+  .boardHead{font-size:10px;letter-spacing:.24em;color:var(--dim);text-transform:uppercase;
+    text-align:center;margin-bottom:10px;}
+  .row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:9px;
+    font-size:14px;font-variant-numeric:tabular-nums;transition:background .3s;}
+  .row .rk{width:22px;text-align:center;color:var(--dim);font-size:12px;}
+  .row .nm{flex:1;text-align:left;color:#bcd4ec;letter-spacing:.02em;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+  .row .sc{color:#8fb4d8;font-weight:500;}
+  .row .av{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor;}
+  .row.me{background:linear-gradient(90deg,rgba(57,230,255,.16),rgba(155,123,255,.10));}
+  .row.me .nm{color:#fff;font-weight:600;} .row.me .sc{color:var(--cyan);}
+  .row.me .rk{color:var(--cyan);}
+  .row.gold .rk{color:var(--amber);}
+  @keyframes rowflash{0%{background:rgba(255,194,75,.4);}100%{background:transparent;}}
+  .row.justpassed{animation:rowflash .9s ease-out;}
+
+  #overtake{margin-top:10px;font-size:14px;color:var(--amber);letter-spacing:.04em;
+    text-shadow:0 0 18px rgba(255,194,75,.4);min-height:18px;}
+
+  /* HUD visible only while actually playing (not on start/end overlays) */
+  #scoreWrap,#chainWrap,#hpTrack,#howto{opacity:0;transition:opacity .3s;}
+  body.playing #scoreWrap,body.playing #hpTrack{opacity:1;}
+  body.playing #howto{opacity:1;}
+  /* bestWrap stays visible everywhere as a quiet corner stat */
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
 </head>
@@ -98,6 +147,7 @@
     <div id="scoreWrap" class="corner">
       <div id="score">0</div>
       <div id="lvl">LEVEL 1</div>
+      <div id="rival"><span id="rivalName"></span> <b id="rivalScore"></b></div>
     </div>
     <div id="chainWrap" class="corner">
       <div id="chainNum">×1</div>
@@ -107,13 +157,22 @@
     <div id="howto"><b>Жми</b>, когда кольцо касается точки</div>
   </div>
   <div id="toast"></div>
+  <div id="rankPop"></div>
 
   <!-- START -->
   <div id="startScreen" class="screen">
     <div class="title">PHASE</div>
     <div class="tagline">Из центра расходится кольцо. Лови точку <b>в тот миг</b>, когда кольцо её касается.</div>
+    <div id="chips">
+      <div class="chip" id="streakChip"><span class="chipIcon">🔥</span><span id="streakTxt">День 1</span></div>
+      <div class="chip" id="goalChip"><span class="chipIcon">🎯</span><span id="goalTxt">Цель</span></div>
+    </div>
     <button id="startBtn" class="btn">Играть</button>
     <button id="skipBtn" class="btn sub">Пропустить обучение</button>
+    <div class="board" id="startBoard">
+      <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
+      <div id="startBoardList"></div>
+    </div>
   </div>
 
   <!-- END -->
@@ -122,9 +181,16 @@
     <div id="endVerdict"></div>
     <div id="endScore">0</div>
     <div id="endLine"></div>
+    <div id="overtake"></div>
+    <div class="board" id="endBoard">
+      <div class="boardHead">РЕЙТИНГ</div>
+      <div id="endBoardList"></div>
+    </div>
     <button id="againBtn" class="btn">Ещё раз</button>
+    <button id="shareBtn" class="btn sub">Поделиться результатом</button>
   </div>
 </div>
+
 
 <script>
 /* ============================================================
@@ -142,19 +208,22 @@ var PhaseCore = (function(){
     NODE_R:16,
     GRACE:0.16,
     NODE_LIFE:5.4, NODE_LIFE_FLOOR:2.9,             // seconds before a node decoheres
-    SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts
+    SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts (legacy)
     MAX_NODES:3,                                    // HARD cap — anti-cacophony
+    TARGET_NODES:2, TARGET_NODES_FLOOR:2,           // keep ~this many on screen (≤ MAX_NODES)
+    REFILL:0.55, REFILL_FLOOR:0.34,                 // seconds between refill checks
+    RFRAC_MIN:0.5, RFRAC_MAX:1.0,                   // nodes live across this band of the orbit
     CHAIN_MULT:0.15,                                // score = base*(1 + chain*mult)
     CHAIN_HOLD:3.2, CHAIN_HOLD_FLOOR:1.9,           // seconds before chain decays a step
     SCORE_BASE:100, CRIT_MULT:3, PURE_MULT:1.5,
-    H_MAX:1.0, H_HIT:0.115, H_MISTAP:0.035,
-    H_LOCK:0.022, H_REGEN:0.006,                    // per-event / per-second
+    H_MAX:1.0, H_HIT:0.14, H_MISTAP:0.045,
+    H_LOCK:0.012, H_REGEN:0.004,                    // per-event / per-second
   };
   var TONES = ["cyan","magenta","amber","violet"];
 
   function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
   function lvlFloor(base,floor,step,level){ return Math.max(floor, base - step*(level-1)); }
-  function levelThreshold(level){ return level*2200 + level*level*650; }
+  function levelThreshold(level){ return level*6000 + level*level*2400; }
   function tonesForLevel(level){ return Math.min(4, 2 + Math.floor((level-1)/3)); }
 
   // Create a fresh game state. edgeR = playfield radius in px.
@@ -173,6 +242,7 @@ var PhaseCore = (function(){
       beatPhase:0,                     // 0..1 within current beat
       nodes:[],
       spawnTimer: 0.5,
+      refillTimer: 0.25,
       seed: 1234567,
       alive:true,
       stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0},
@@ -188,6 +258,17 @@ var PhaseCore = (function(){
   function nodeLife(s){ return lvlFloor(CFG.NODE_LIFE, CFG.NODE_LIFE_FLOOR, 0.42, s.level); }
   function spawnGap(s){ return lvlFloor(CFG.SPAWN, CFG.SPAWN_FLOOR, 0.16, s.level); }
   function chainHold(s){ return lvlFloor(CFG.CHAIN_HOLD, CFG.CHAIN_HOLD_FLOOR, 0.18, s.level); }
+  function refillGap(s){ return lvlFloor(CFG.REFILL, CFG.REFILL_FLOOR, 0.03, s.level); }
+  // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
+  function targetNodes(s){
+    var t = CFG.TARGET_NODES + Math.floor((s.level-1)/4); // 2 early, 3 from level 5+
+    return Math.min(CFG.MAX_NODES, Math.max(CFG.TARGET_NODES_FLOOR, t));
+  }
+  // a node's individual orbit radius in px (nodes with rFrac sit inside the edge)
+  function nodeRadius(s, nd){
+    var f = (nd && nd.rFrac!=null) ? nd.rFrac : 1;
+    return s.nodeR * f;
+  }
 
   function ringTone(s){
     // ring's current tone cycles each beat through available tones
@@ -210,8 +291,21 @@ var PhaseCore = (function(){
       }
       tries++;
     } while(!ok && tries<8);
+    // pick a radius fraction spread away from existing nodes' radii, so the single
+    // ring touches each node at a DIFFERENT phase of its sweep (rhythm, not a clump).
+    var rf=1, rtries=0, rok=false;
+    do{
+      rf = CFG.RFRAC_MIN + rng(s)*(CFG.RFRAC_MAX-CFG.RFRAC_MIN);
+      rok = true;
+      for(var j=0;j<s.nodes.length;j++){
+        var rfj = s.nodes[j].rFrac!=null ? s.nodes[j].rFrac : 1;
+        if(Math.abs(rf - rfj) < 0.16){ rok=false; break; }
+      }
+      rtries++;
+    } while(!rok && rtries<8);
     s.nodes.push({
       ang: ang,
+      rFrac: rf,
       tone: TONES[Math.floor(rng(s)*n)],
       life: nodeLife(s),
       maxLife: nodeLife(s),
@@ -255,7 +349,7 @@ var PhaseCore = (function(){
         s.stats.decohered++;
         s.chain = 0; s.chainTimer = 0;
         s.health = clamp(s.health - CFG.H_HIT, 0, CFG.H_MAX);
-        s.events.push({type:"decohere", ang:nd.ang, tone:nd.tone});
+        s.events.push({type:"decohere", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone});
         if(s.health<=0){ die(s); return; }
       }
     }
@@ -263,12 +357,18 @@ var PhaseCore = (function(){
     // --- passive: tiny health drain so idling is fatal, small regen otherwise ---
     s.health = clamp(s.health + (CFG.H_REGEN - CFG.H_LOCK*0) * dt, 0, CFG.H_MAX);
 
-    // --- spawn ---
-    s.spawnTimer -= dt;
-    if(s.spawnTimer <= 0){
-      s.spawnTimer = spawnGap(s);
-      trySpawn(s);
+    // --- keep the field populated: refill toward the target count (≤ MAX_NODES) ---
+    // This is the anti-boredom fix: the old single-timer spawn left the screen empty
+    // ~80% of the time. We top up to ~targetNodes so there's almost always something
+    // to read and hit — while never exceeding the hard MAX_NODES cacophony cap.
+    s.refillTimer -= dt;
+    if(s.refillTimer <= 0){
+      s.refillTimer = refillGap(s);
+      if(s.nodes.length < targetNodes(s)) trySpawn(s);
     }
+    // keep legacy spawnTimer ticking (harmless; some tests/poke at it)
+    s.spawnTimer -= dt;
+    if(s.spawnTimer <= 0){ s.spawnTimer = spawnGap(s); }
 
     // --- level up by score ---
     while(s.score >= levelThreshold(s.level)){
@@ -278,7 +378,9 @@ var PhaseCore = (function(){
   }
 
   // How close (in px) is the ring to a node right now. lower = better.
-  function nodeError(s, nd){ return Math.abs(s.ring - s.nodeR); }
+  // Uses the node's OWN orbit radius, so the single ring resonates with each node
+  // at a different moment of its sweep (this is what makes the loop rhythmic).
+  function nodeError(s, nd){ return Math.abs(s.ring - nodeRadius(s, nd)); }
 
   // Find the best resonating node for a Space press (closest to ideal, within window).
   function bestNode(s){
@@ -301,7 +403,7 @@ var PhaseCore = (function(){
       s.chain = 0; s.chainTimer = 0;
       s.health = clamp(s.health - CFG.H_MISTAP, 0, CFG.H_MAX);
       s.stats.miss++;
-      s.events.push({type:"miss", ang:nd.ang});
+      s.events.push({type:"miss", ang:nd.ang, rFrac:nd.rFrac});
       if(s.health<=0){ die(s); }
       return {result:"miss"};
     }
@@ -323,7 +425,7 @@ var PhaseCore = (function(){
     s.health = clamp(s.health + CFG.H_LOCK, 0, CFG.H_MAX);
 
     s.nodes.splice(idx,1);
-    s.events.push({type:"lock", ang:nd.ang, tone:nd.tone, crit:crit, pure:pure,
+    s.events.push({type:"lock", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone, crit:crit, pure:pure,
                    gained:gained, chain:s.chain});
     return {result: crit?"perfect":"good", pure:pure, gained:gained, chain:s.chain};
   }
@@ -371,11 +473,148 @@ var PhaseCore = (function(){
     beatLen:beatLen, windowPx:windowPx, ringTone:ringTone,
     levelThreshold:levelThreshold, tonesForLevel:tonesForLevel,
     nodeLife:nodeLife, spawnGap:spawnGap, chainHold:chainHold,
+    refillGap:refillGap, targetNodes:targetNodes, nodeRadius:nodeRadius,
     clamp:clamp,
   };
 })();
 if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
 </script>
+
+<script>
+/* ============================================================
+   PhaseMeta — engagement & retention layer (DOM-free core).
+   Builds a believable DAILY leaderboard that is:
+     • deterministic per calendar day (same names/scores all day → feels real),
+     • seeded so it's stable across reloads,
+     • blended with the player's own real past runs (as named "you" ghosts),
+   plus: live rank during a run, daily streak, rotating session goal, unlocks.
+   No network, no backend. Pure functions where possible (testable).
+   ============================================================ */
+"use strict";
+var PhaseMeta = (function(){
+  // mulberry32 — tiny deterministic PRNG
+  function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+    var t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296; }; }
+
+  // a curated pool of plausible "phaser" handles (neutral, gamer-ish, multi-culture)
+  var NAMES = ["NovaPulse","K1rin","echo_77","Vortex","mira.s","glitchwave","ZenBeat","r0nin",
+    "lumen","Phaze","KaiAtlas","s0nic_bloom","drift","Nebula","oksi","Tempo","Quark","viv4",
+    "halcyon","b1tflux","Aria","Crater","n0 va","Pulsewidth","Marlow","Strobe","km.dev","Resa",
+    "Onyx","wavelen","Cipher","Lyra_","toma","FluxCap","Andro","Skye","Zephyr","mox","Helix",
+    "Vega","Cobalt","r1ft","Sable","Nyx","Orbit","kx9","Lumina","Dax","Prism"];
+  var AVHEX = ["#39e6ff","#ff4fd8","#ffc24b","#9b7bff","#7fffd4","#ff9e7a"];
+
+  function dayNum(now){
+    var d = now? new Date(now) : new Date();
+    return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
+  }
+
+  // Build today's bot field. Count ~ 40. Scores follow a long-tail distribution so the
+  // top is impressive but the mid-field is beatable by a real player (key for "I can climb").
+  function dailyField(day, count){
+    count = count||40;
+    var rnd = mulberry(day*2654435761 + 101);
+    // pick a stable subset + order of names for the day
+    var pool = NAMES.slice();
+    for(var i=pool.length-1;i>0;i--){ var j=Math.floor(rnd()*(i+1)); var t=pool[i];pool[i]=pool[j];pool[j]=t; }
+    var names = pool.slice(0, count);
+    var arr=[];
+    // top score of the day: 1.6M..3.0M; long tail down to a few thousand so the
+    // mid/lower field is realistically beatable by a learning player (the climb hook)
+    var top = 1600000 + Math.floor(rnd()*1400000);
+    for(var k=0;k<count;k++){
+      // exponential-ish decay with jitter
+      var frac = Math.pow(1 - k/count, 2.35);
+      var jitter = 0.88 + rnd()*0.24;
+      var sc = Math.max(800, Math.round(top*frac*jitter/10)*10);
+      arr.push({ name:names[k], score:sc, av:AVHEX[Math.floor(rnd()*AVHEX.length)], bot:true });
+    }
+    arr.sort(function(a,b){return b.score-a.score;});
+    return arr;
+  }
+
+  // Merge the player's entries (real past bests) into the field, dedupe by being "me".
+  // meScore: the score to place RIGHT NOW (live or final). Returns {list, rank, total, justName}
+  function standings(day, meScore, meName, pastBests){
+    var field = dailyField(day);
+    // include up to 3 of the player's own previous runs as ghosts (named "ты ·")
+    var ghosts = (pastBests||[]).slice(0,3).map(function(s,i){
+      return { name:"ты · заезд", score:s, av:"#39e6ff", me:false, ghost:true };
+    });
+    var all = field.concat(ghosts);
+    all.push({ name: meName||"ТЫ", score: meScore||0, av:"#39e6ff", me:true });
+    all.sort(function(a,b){return b.score-a.score;});
+    var rank = all.findIndex(function(r){return r.me;})+1;
+    return { list:all, rank:rank, total:all.length };
+  }
+
+  // Given previous score and new score, who did you pass? returns array of names passed.
+  function passedBetween(day, prevScore, newScore, meName, pastBests){
+    if(newScore<=prevScore) return [];
+    var field = dailyField(day);
+    var ghosts = (pastBests||[]).map(function(s){return {name:"твой прошлый заезд",score:s};});
+    var pool = field.concat(ghosts);
+    return pool.filter(function(r){ return r.score>prevScore && r.score<=newScore; })
+               .sort(function(a,b){return a.score-b.score;});
+  }
+
+  /* ---- session goal (rotates, beatable, escalates with skill) ---- */
+  function sessionGoal(day, best){
+    var rnd = mulberry(day*40503 + 7);
+    var kinds = [
+      {id:"score", make:function(){ var base = best>0 ? Math.round(best*1.12/1000)*1000 : 80000;
+        var tgt=Math.max(40000,base); return {id:"score", target:tgt, label:"Набей "+fmt(tgt), unit:"score"}; }},
+      {id:"level", make:function(){ var L = best>300000?12:(best>80000?9:6);
+        return {id:"level", target:L, label:"Дойди до уровня "+L, unit:"level"}; }},
+      {id:"chain", make:function(){ var ch = best>300000?40:20;
+        return {id:"chain", target:ch, label:"Собери цепь ×"+ch, unit:"chain"}; }},
+      {id:"perfect", make:function(){ return {id:"perfect", target: 25, label:"25 PERFECT за заезд", unit:"perfect"}; }},
+    ];
+    return kinds[Math.floor(rnd()*kinds.length)].make();
+  }
+  function goalProgress(goal, G){
+    if(!goal||!G) return 0;
+    var v = goal.unit==="score"?G.score : goal.unit==="level"?G.level :
+            goal.unit==="chain"?G.stats.maxChain : G.stats.perfect;
+    return Math.min(1, v/goal.target);
+  }
+
+  /* ---- streak ---- */
+  function updateStreak(store){
+    var today = (function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);})();
+    var last = +(store.get("streakDay")||0);
+    var n = +(store.get("streakN")||0);
+    if(last===today){ /* same day, keep */ }
+    else if(last===today-1){ n=n+1; store.set("streakN",n); store.set("streakDay",today); }
+    else { n=1; store.set("streakN",1); store.set("streakDay",today); }
+    if(n<1){ n=1; store.set("streakN",1); store.set("streakDay",today); }
+    return n;
+  }
+
+  /* ---- unlockables (cosmetic core themes) by lifetime milestones ---- */
+  var THEMES = [
+    {id:"aurora", name:"Aurora",  need:0,        core:"#39e6ff"},
+    {id:"ember",  name:"Ember",   need:150000,   core:"#ffc24b"},
+    {id:"orchid", name:"Orchid",  need:500000,   core:"#ff4fd8"},
+    {id:"violet", name:"Singularity", need:1200000, core:"#9b7bff"},
+  ];
+  function unlockedThemes(best){ return THEMES.filter(function(t){return best>=t.need;}); }
+  function nextTheme(best){ return THEMES.find(function(t){return best<t.need;})||null; }
+
+  function fmt(n){ return (n||0).toLocaleString("ru-RU"); }
+
+  return {
+    _mulberry:mulberry, dailyField:dailyField, standings:standings,
+    passedBetween:passedBetween, sessionGoal:sessionGoal, goalProgress:goalProgress,
+    updateStreak:updateStreak, unlockedThemes:unlockedThemes, nextTheme:nextTheme,
+    THEMES:THEMES, NAMES:NAMES, fmt:fmt,
+    today:function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
+  };
+})();
+if(typeof module!=="undefined" && module.exports){ module.exports = (module.exports, PhaseMeta); }
+</script>
+
 
 <script>
 /* ============================================================
@@ -495,9 +734,85 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
       chainNum=document.getElementById("chainNum"),
       chainBar=document.getElementById("chainBar"),
       hpFill=document.getElementById("hpFill"),
-      howto=document.getElementById("howto");
+      howto=document.getElementById("howto"),
+      rivalEl=document.getElementById("rival"),
+      rivalName=document.getElementById("rivalName"),
+      rivalScore=document.getElementById("rivalScore"),
+      rankPop=document.getElementById("rankPop");
 
   var scoreShown=0;
+
+  /* ---------- meta: persistent store + leaderboard/streak/goal/themes ---------- */
+  var M = PhaseMeta;
+  var store = {
+    get:function(k){ try{return localStorage.getItem("phase_"+k);}catch(e){return null;} },
+    set:function(k,v){ try{localStorage.setItem("phase_"+k,v);}catch(e){} }
+  };
+  var DAY = M.today();
+  // player's real past top runs (kept for ghosts on the board)
+  var pastBests = JSON.parse(store.get("pastBests")||"[]");
+  var streakN = M.updateStreak(store);
+  var goal = M.sessionGoal(DAY, +(localStorage.getItem("phase6_best")||0));
+  var activeTheme = store.get("theme") || "aurora";
+
+  function themeCore(){ var t=M.THEMES.find(function(x){return x.id===activeTheme;}); return t?t.core:"#39e6ff"; }
+
+  // build a leaderboard <div> list into a container, marking the player's row
+  function renderBoard(container, meScore, flashName){
+    var s = M.standings(DAY, meScore, "ТЫ", pastBests);
+    var list = s.list;
+    var meIdx = list.findIndex(function(r){return r.me;});
+    // show a window around the player: top 3 + neighbours, deduped & ordered
+    var idxs = new Set([0,1,2, meIdx-1, meIdx, meIdx+1]);
+    var rows = [];
+    var prev = -1;
+    Array.from(idxs).filter(function(i){return i>=0 && i<list.length;})
+      .sort(function(a,b){return a-b;})
+      .forEach(function(i){
+        if(prev!==-1 && i>prev+1){ rows.push('<div class="row" style="opacity:.4;justify-content:center;color:#5a7494;font-size:12px">···</div>'); }
+        var r=list[i];
+        var cls = "row"+(r.me?" me":"")+(i===0?" gold":"")+(flashName&&r.name===flashName?" justpassed":"");
+        rows.push('<div class="'+cls+'">'+
+          '<span class="rk">'+(i+1)+'</span>'+
+          '<span class="av" style="color:'+r.av+';background:'+r.av+'"></span>'+
+          '<span class="nm">'+(r.me?"ТЫ":escapeHtml(r.name))+'</span>'+
+          '<span class="sc">'+M.fmt(r.score)+'</span></div>');
+        prev=i;
+      });
+    container.innerHTML = rows.join("");
+    return s;
+  }
+  function escapeHtml(s){ return (s+"").replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  // live-rival tracking during a run
+  var rivalTarget=null, lastPassCheck=0, prevRunScore=0, rankFlashT=0;
+  function refreshRival(){
+    var s = M.standings(DAY, G.score, "ТЫ", pastBests);
+    var meIdx = s.list.findIndex(function(r){return r.me;});
+    if(meIdx>0){
+      rivalTarget = s.list[meIdx-1];          // the player just above you
+      rivalName.textContent = "СЛЕД: "+rivalTarget.name;
+      rivalScore.textContent = M.fmt(rivalTarget.score);
+      rivalEl.classList.remove("lead");
+      rivalEl.style.opacity="1";
+    } else {
+      rivalTarget=null;
+      rivalName.textContent = "🏆 №1 СЕГОДНЯ";
+      rivalScore.textContent = "";
+      rivalEl.classList.add("lead");
+      rivalEl.style.opacity="1";
+    }
+  }
+  function showRankPop(txt){
+    rankPop.textContent=txt;
+    rankPop.style.transition="none";
+    rankPop.style.opacity="1";
+    rankPop.style.transform="translate(-50%,-50%) scale(1.06)";
+    void rankPop.offsetWidth;
+    rankPop.style.transition="opacity 1s, transform 1s";
+    rankPop.style.opacity="0";
+    rankPop.style.transform="translate(-50%,-50%) scale(.9) translateY(-14px)";
+  }
 
   /* ---------- game state ---------- */
   var G=null;
@@ -506,6 +821,13 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
   var RUNS = +(localStorage.getItem("phase6_runs")||0);
   taught = localStorage.getItem("phase6_taught")==="1";
   bestEl.textContent = BEST;
+
+  // populate start-screen chips + board on boot
+  function refreshStartUI(){
+    var sEl=document.getElementById("streakTxt"); if(sEl) sEl.textContent = "День "+streakN+" подряд";
+    var gEl=document.getElementById("goalTxt"); if(gEl) gEl.textContent = goal.label;
+    var sb=document.getElementById("startBoardList"); if(sb) renderBoard(sb, BEST, null);
+  }
 
   // tutorial overlay state (lightweight, drawn on canvas)
   var tut={on:false, step:0, hold:0};
@@ -519,16 +841,22 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
     parts.length=0; shocks.length=0; kick=0; scoreShown=0;
     tut.on = withTutorial && !taught;
     tut.step=0; tut.hold=0;
+    prevRunScore=0; rivalTarget=null; rankFlashT=0;
     document.getElementById("startScreen").classList.add("hidden");
     document.getElementById("endScreen").classList.add("hidden");
+    document.body.classList.add("playing");
     chainWrap.style.opacity="0";
     howto.style.opacity="1";
+    rivalEl.style.opacity="0";
     running=true; last=performance.now();
+    if(!tut.on){ refreshRival(); }
     requestAnimationFrame(loop);
   }
 
   function endGame(){
     running=false;
+    document.body.classList.remove("playing");
+    rivalEl.style.opacity="0"; chainWrap.style.opacity="0"; howto.style.opacity="0";
     RUNS++; localStorage.setItem("phase6_runs", RUNS);
     var rec = G.score > BEST;
     if(rec){ BEST=G.score; localStorage.setItem("phase6_best", BEST); }
@@ -567,6 +895,42 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
     es.textContent = G.score;
     el.textContent = "LEVEL "+G.level+"  ·  ЦЕПЬ ×"+st.maxChain+"  ·  PERFECT "+st.perfect;
 
+    /* ---- META: leaderboard, rank, overtakes, unlocks (retention payoff) ---- */
+    // how many players did this run pass vs the player's PREVIOUS best?
+    var prevBest = +(store.get("prevBest")||0);
+    var passed = M.passedBetween(DAY, prevBest, G.score, "ТЫ", pastBests);
+    // record this run into the ghost pool (keep top 5)
+    pastBests.push(G.score);
+    pastBests.sort(function(a,b){return b-a;});
+    pastBests = pastBests.slice(0,5);
+    store.set("pastBests", JSON.stringify(pastBests));
+    store.set("prevBest", String(Math.max(prevBest, G.score)));
+
+    var s = renderBoard(document.getElementById("endBoardList"), G.score, passed.length?passed[passed.length-1].name:null);
+    var ovEl = document.getElementById("overtake");
+    if(rec){
+      ovEl.innerHTML = "🏆 Новый личный рекорд! Ты <b>#"+s.rank+"</b> сегодня";
+    } else if(passed.length>0){
+      ovEl.innerHTML = "⬆ Обошёл <b>"+passed.length+"</b> "+plural(passed.length,"игрока","игроков","игроков")+" · ты #"+s.rank;
+    } else {
+      ovEl.innerHTML = "Ты <b>#"+s.rank+"</b> из "+s.total+" · до следующего "+
+        (s.rank>1? M.fmt(Math.max(1,(s.list[s.rank-2].score - G.score)))+" очков" : "ты лидер!");
+    }
+
+    // theme unlock check (cosmetic, lifetime best)
+    var beforeUnlocks = JSON.parse(store.get("unlocks")||"[]");
+    var nowUnlocked = M.unlockedThemes(BEST).map(function(t){return t.id;});
+    var fresh = nowUnlocked.filter(function(id){return beforeUnlocks.indexOf(id)<0;});
+    if(fresh.length){
+      store.set("unlocks", JSON.stringify(nowUnlocked));
+      var th = M.THEMES.find(function(t){return t.id===fresh[fresh.length-1];});
+      activeTheme = th.id; store.set("theme", th.id);
+      setTimeout(function(){ showRankPop("✦ Открыта тема: "+th.name); }, 900);
+    }
+    // refresh start screen so next visit shows updated board/streak/goal
+    goal = M.sessionGoal(DAY, BEST);
+    refreshStartUI();
+
     // run a couple particle frames so confetti shows on the static end screen
     var fr=0;
     (function tail(){
@@ -580,13 +944,19 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
       document.getElementById("endScreen").classList.remove("hidden");
     }, rec?700:350);
   }
+  function plural(n,one,few,many){
+    var m10=n%10, m100=n%100;
+    if(m10===1 && m100!==11) return one;
+    if(m10>=2 && m10<=4 && (m100<10||m100>=20)) return few;
+    return many;
+  }
 
   /* ---------- event consumption (juice) ---------- */
   function consumeEvents(){
     for(var i=0;i<G.events.length;i++){
       var e=G.events[i];
       var pos;
-      if(e.ang!==undefined){ pos={x:CX+Math.cos(e.ang)*G.nodeR, y:CY+Math.sin(e.ang)*G.nodeR}; }
+      if(e.ang!==undefined){ var er = G.nodeR*(e.rFrac!=null?e.rFrac:1); pos={x:CX+Math.cos(e.ang)*er, y:CY+Math.sin(e.ang)*er}; }
       if(e.type==="beat"){ tick(); }
       else if(e.type==="lock"){
         var hex=TONE_HEX[e.tone];
@@ -632,26 +1002,29 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
     var rtone = C.ringTone(G);
     var rhex = TONE_HEX[rtone];
 
-    // faint guide circle where nodes live
+    // (no single orbit circle — nodes now live at varied radii; each draws its own
+    //  faint target ring in the node loop so it's clear where the ring will touch it)
     ctx.globalCompositeOperation="lighter";
-    ctx.beginPath(); ctx.arc(CX,CY,G.nodeR,0,7);
-    ctx.strokeStyle="rgba(90,116,148,0.10)"; ctx.lineWidth=1; ctx.stroke();
 
-    // center core (pulses on beat)
+    // center core (pulses on beat) — kept SMALL & quiet on purpose: the action is
+    // out on the orbit, so the center must not be the loudest thing on screen.
+    // Its colour reflects the player's unlocked THEME (cosmetic progression).
     var pulse = 1 - G.beatPhase;
-    var coreR = 6 + pulse*5;
+    var coreR = 4 + pulse*3;
+    var coreHex = themeCore();
     ctx.beginPath(); ctx.arc(CX,CY,coreR,0,7);
-    ctx.fillStyle=rhex; ctx.globalAlpha=0.5+pulse*0.4;
-    ctx.shadowBlur=24; ctx.shadowColor=rhex; ctx.fill();
+    ctx.fillStyle=coreHex; ctx.globalAlpha=0.3+pulse*0.3;
+    ctx.shadowBlur=14; ctx.shadowColor=coreHex; ctx.fill();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
 
     // ---- the ONE ring ----
     var rr = Math.max(0, G.ring);
-    // ring intensifies as it approaches the node-orbit (where hits happen)
-    var nearOrbit = 1 - Math.min(1, Math.abs(rr - G.nodeR) / (G.edgeR*0.5));
+    // ring intensifies sharply as it approaches the node-orbit (where hits happen)
+    var nearOrbit = 1 - Math.min(1, Math.abs(rr - G.nodeR) / (G.edgeR*0.42));
+    nearOrbit = nearOrbit*nearOrbit;  // ease-in so it stays calm until close, then POPS
     ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
-    ctx.strokeStyle=rhex; ctx.globalAlpha=0.55 + nearOrbit*0.4;
-    ctx.lineWidth=2 + nearOrbit*1.5; ctx.shadowBlur=10 + nearOrbit*16; ctx.shadowColor=rhex;
+    ctx.strokeStyle=rhex; ctx.globalAlpha=0.5 + nearOrbit*0.5;
+    ctx.lineWidth=2 + nearOrbit*2.5; ctx.shadowBlur=10 + nearOrbit*22; ctx.shadowColor=rhex;
     ctx.stroke();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
 
@@ -668,7 +1041,8 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
     // ---- nodes ----
     for(var i=0;i<G.nodes.length;i++){
       var nd=G.nodes[i];
-      var x=CX+Math.cos(nd.ang)*G.nodeR, y=CY+Math.sin(nd.ang)*G.nodeR;
+      var nr=C.nodeRadius(G, nd);
+      var x=CX+Math.cos(nd.ang)*nr, y=CY+Math.sin(nd.ang)*nr;
       var hex=TONE_HEX[nd.tone];
       var err=C.nodeError(G, nd);
       var inWin = err<=win;
@@ -676,21 +1050,48 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
       var crit = err<=win*C.CFG.CRIT_FRAC;
       var lifeFrac = nd.life/nd.maxLife;
       var pure = nd.tone === rtone;
+      // anticipation: how close the ring is on its way IN to THIS node (uses its radius)
+      var approach = C.clamp(1 - Math.abs(G.ring - nr)/(G.edgeR*0.42), 0, 1);
       ctx.globalCompositeOperation="lighter";
+
+      // PER-NODE ORBIT HINT: a short faint arc at this node's radius, around the node,
+      // so it's clear "the ring will touch this dot when it reaches HERE". Brightens
+      // as the ring nears this radius. Kept short (not a full circle) to avoid clutter.
+      var aw = 0.5 + approach*0.5;  // arc half-width in radians
+      ctx.beginPath(); ctx.arc(CX,CY,nr, nd.ang-aw, nd.ang+aw);
+      ctx.strokeStyle=hex; ctx.globalAlpha=0.06 + approach*0.22;
+      ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+
+      // GUIDE SPOKE: a faint colored line from center to this node, so the eye is
+      // pulled OUTWARD to where the action is (center is no longer the loudest thing).
+      // It brightens as the ring approaches this node — a directional "incoming" cue.
+      var sg = ctx.createLinearGradient(CX,CY,x,y);
+      sg.addColorStop(0,"rgba(0,0,0,0)");
+      sg.addColorStop(1,hex);
+      ctx.beginPath(); ctx.moveTo(CX,CY); ctx.lineTo(x,y);
+      ctx.strokeStyle=sg; ctx.globalAlpha=0.05 + approach*0.28;
+      ctx.lineWidth=1 + approach*1.5; ctx.stroke(); ctx.globalAlpha=1;
+
+      // TARGET PIP: a steady colored ring sitting on the orbit, always visible.
+      // Tells a first-timer "this is a target, and it has a colour" before maturity.
+      ctx.beginPath(); ctx.arc(x,y,C.CFG.NODE_R+5,0,7);
+      ctx.strokeStyle=hex; ctx.globalAlpha=0.22 + approach*0.4;
+      ctx.lineWidth=1.5; ctx.shadowBlur=approach*14; ctx.shadowColor=hex;
+      ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
 
       // decoherence countdown: a thin ring that empties as the node ages.
       // Stays quiet so idle nodes don't add noise; reddens when about to die.
       if(lifeFrac < 0.45){
         ctx.beginPath();
-        ctx.arc(x,y,C.CFG.NODE_R+8,-Math.PI/2,-Math.PI/2+lifeFrac/0.45*Math.PI*2);
-        ctx.strokeStyle="#ff4fd8"; ctx.globalAlpha=0.55*(1-lifeFrac/0.45);
+        ctx.arc(x,y,C.CFG.NODE_R+9,-Math.PI/2,-Math.PI/2+lifeFrac/0.45*Math.PI*2);
+        ctx.strokeStyle="#ff4fd8"; ctx.globalAlpha=0.6*(1-lifeFrac/0.45);
         ctx.lineWidth=2; ctx.stroke(); ctx.globalAlpha=1;
       }
 
       // CONVERGING APERTURE: a ring that races in from outside and snaps onto the
       // dot exactly at the perfect instant. This is the "NOW" signal.
       if(prox>0){
-        var apR = C.CFG.NODE_R + (1-prox)*30;
+        var apR = C.CFG.NODE_R + (1-prox)*36;
         ctx.beginPath(); ctx.arc(x,y,apR, 0,7);
         ctx.strokeStyle = crit ? "#ffffff" : hex;
         ctx.globalAlpha = 0.3 + 0.7*prox;
@@ -705,12 +1106,12 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
         }
       }
 
-      // core dot — dim while waiting, blooms as the ring arrives
-      var dotR = C.CFG.NODE_R*(0.5 + prox*0.55);
+      // core dot — visible & colored even while waiting, blooms as the ring arrives
+      var dotR = C.CFG.NODE_R*(0.58 + prox*0.5);
       ctx.beginPath(); ctx.arc(x,y,dotR,0,7);
       ctx.fillStyle = hex;
-      ctx.globalAlpha = 0.4 + prox*0.6;
-      ctx.shadowBlur = 6 + prox*24; ctx.shadowColor = hex; ctx.fill();
+      ctx.globalAlpha = 0.6 + prox*0.4;
+      ctx.shadowBlur = 8 + prox*24; ctx.shadowColor = hex; ctx.fill();
       ctx.shadowBlur=0; ctx.globalAlpha=1;
 
       // crit flash: dot core goes white-hot at the perfect instant
@@ -789,6 +1190,17 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
     }
     if(G.score>50) howto.style.opacity="0";
 
+    // --- LIVE RIVAL: have we overtaken the player just above us? ---
+    if(rivalTarget && G.score > rivalTarget.score){
+      var passedName = rivalTarget.name;
+      showRankPop("⬆ обгон: "+passedName);
+      addKick(3);
+      if(AC) tone(880,0.10,"triangle",0.18);
+      refreshRival();   // advance to the next rival up
+    } else if(!rivalTarget && rivalEl.style.opacity!=="1"){
+      refreshRival();
+    }
+
     if(!G.alive){ endGame(); return; }
     requestAnimationFrame(loop);
   }
@@ -844,23 +1256,37 @@ if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
   });
   document.getElementById("againBtn").addEventListener("click", function(){ startGame(false); });
 
+  // SHARE: copy a result card text (works on GitHub Pages, no backend)
+  document.getElementById("shareBtn").addEventListener("click", function(){
+    var sc = es ? +es.textContent.replace(/\D/g,"") : (G?G.score:0);
+    var url = location.href.split("#")[0];
+    var txt = "PHASE — мой результат "+M.fmt(sc)+" 🌊 День "+streakN+" подряд. Попробуй обогнать: "+url;
+    var done=function(){ var b=document.getElementById("shareBtn"); var o=b.textContent; b.textContent="Скопировано ✓"; setTimeout(function(){b.textContent=o;},1400); };
+    if(navigator.share){ navigator.share({title:"PHASE", text:txt, url:url}).catch(function(){}); }
+    else if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(done).catch(done); }
+    else { done(); }
+  });
+
   // boot
   resize();
-  // ambient idle render on start screen
+  refreshStartUI();
+  var es = document.getElementById("endScore");
+  // ambient idle render on start screen — uses unlocked theme colour
   (function idle(){
     if(running) return;
     ctx.fillStyle="rgba(4,6,12,0.2)"; ctx.fillRect(0,0,W,H);
     var t=performance.now()/1000;
     ctx.globalCompositeOperation="lighter";
     var rr=(t%1.4)/1.4*edgeR;
+    var ih=themeCore();
     ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
-    ctx.strokeStyle="rgba(57,230,255,0.18)"; ctx.lineWidth=2; ctx.stroke();
+    ctx.strokeStyle=ih; ctx.globalAlpha=0.16; ctx.lineWidth=2; ctx.stroke(); ctx.globalAlpha=1;
     ctx.globalCompositeOperation="source-over";
     requestAnimationFrame(idle);
   })();
 
   // expose for tests
-  window.__PHASE__ = {get G(){return G;}, start:startGame, core:C};
+  window.__PHASE__ = {get G(){return G;}, start:startGame, core:C, meta:M};
 })();
 </script>
 </body>

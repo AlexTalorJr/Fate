@@ -9,19 +9,22 @@ var PhaseCore = (function(){
     NODE_R:16,
     GRACE:0.16,
     NODE_LIFE:5.4, NODE_LIFE_FLOOR:2.9,             // seconds before a node decoheres
-    SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts
+    SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts (legacy)
     MAX_NODES:3,                                    // HARD cap — anti-cacophony
+    TARGET_NODES:2, TARGET_NODES_FLOOR:2,           // keep ~this many on screen (≤ MAX_NODES)
+    REFILL:0.55, REFILL_FLOOR:0.34,                 // seconds between refill checks
+    RFRAC_MIN:0.5, RFRAC_MAX:1.0,                   // nodes live across this band of the orbit
     CHAIN_MULT:0.15,                                // score = base*(1 + chain*mult)
     CHAIN_HOLD:3.2, CHAIN_HOLD_FLOOR:1.9,           // seconds before chain decays a step
     SCORE_BASE:100, CRIT_MULT:3, PURE_MULT:1.5,
-    H_MAX:1.0, H_HIT:0.115, H_MISTAP:0.035,
-    H_LOCK:0.022, H_REGEN:0.006,                    // per-event / per-second
+    H_MAX:1.0, H_HIT:0.14, H_MISTAP:0.045,
+    H_LOCK:0.012, H_REGEN:0.004,                    // per-event / per-second
   };
   var TONES = ["cyan","magenta","amber","violet"];
 
   function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
   function lvlFloor(base,floor,step,level){ return Math.max(floor, base - step*(level-1)); }
-  function levelThreshold(level){ return level*2200 + level*level*650; }
+  function levelThreshold(level){ return level*6000 + level*level*2400; }
   function tonesForLevel(level){ return Math.min(4, 2 + Math.floor((level-1)/3)); }
 
   // Create a fresh game state. edgeR = playfield radius in px.
@@ -40,6 +43,7 @@ var PhaseCore = (function(){
       beatPhase:0,                     // 0..1 within current beat
       nodes:[],
       spawnTimer: 0.5,
+      refillTimer: 0.25,
       seed: 1234567,
       alive:true,
       stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0},
@@ -55,6 +59,17 @@ var PhaseCore = (function(){
   function nodeLife(s){ return lvlFloor(CFG.NODE_LIFE, CFG.NODE_LIFE_FLOOR, 0.42, s.level); }
   function spawnGap(s){ return lvlFloor(CFG.SPAWN, CFG.SPAWN_FLOOR, 0.16, s.level); }
   function chainHold(s){ return lvlFloor(CFG.CHAIN_HOLD, CFG.CHAIN_HOLD_FLOOR, 0.18, s.level); }
+  function refillGap(s){ return lvlFloor(CFG.REFILL, CFG.REFILL_FLOOR, 0.03, s.level); }
+  // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
+  function targetNodes(s){
+    var t = CFG.TARGET_NODES + Math.floor((s.level-1)/4); // 2 early, 3 from level 5+
+    return Math.min(CFG.MAX_NODES, Math.max(CFG.TARGET_NODES_FLOOR, t));
+  }
+  // a node's individual orbit radius in px (nodes with rFrac sit inside the edge)
+  function nodeRadius(s, nd){
+    var f = (nd && nd.rFrac!=null) ? nd.rFrac : 1;
+    return s.nodeR * f;
+  }
 
   function ringTone(s){
     // ring's current tone cycles each beat through available tones
@@ -77,8 +92,21 @@ var PhaseCore = (function(){
       }
       tries++;
     } while(!ok && tries<8);
+    // pick a radius fraction spread away from existing nodes' radii, so the single
+    // ring touches each node at a DIFFERENT phase of its sweep (rhythm, not a clump).
+    var rf=1, rtries=0, rok=false;
+    do{
+      rf = CFG.RFRAC_MIN + rng(s)*(CFG.RFRAC_MAX-CFG.RFRAC_MIN);
+      rok = true;
+      for(var j=0;j<s.nodes.length;j++){
+        var rfj = s.nodes[j].rFrac!=null ? s.nodes[j].rFrac : 1;
+        if(Math.abs(rf - rfj) < 0.16){ rok=false; break; }
+      }
+      rtries++;
+    } while(!rok && rtries<8);
     s.nodes.push({
       ang: ang,
+      rFrac: rf,
       tone: TONES[Math.floor(rng(s)*n)],
       life: nodeLife(s),
       maxLife: nodeLife(s),
@@ -122,7 +150,7 @@ var PhaseCore = (function(){
         s.stats.decohered++;
         s.chain = 0; s.chainTimer = 0;
         s.health = clamp(s.health - CFG.H_HIT, 0, CFG.H_MAX);
-        s.events.push({type:"decohere", ang:nd.ang, tone:nd.tone});
+        s.events.push({type:"decohere", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone});
         if(s.health<=0){ die(s); return; }
       }
     }
@@ -130,12 +158,18 @@ var PhaseCore = (function(){
     // --- passive: tiny health drain so idling is fatal, small regen otherwise ---
     s.health = clamp(s.health + (CFG.H_REGEN - CFG.H_LOCK*0) * dt, 0, CFG.H_MAX);
 
-    // --- spawn ---
-    s.spawnTimer -= dt;
-    if(s.spawnTimer <= 0){
-      s.spawnTimer = spawnGap(s);
-      trySpawn(s);
+    // --- keep the field populated: refill toward the target count (≤ MAX_NODES) ---
+    // This is the anti-boredom fix: the old single-timer spawn left the screen empty
+    // ~80% of the time. We top up to ~targetNodes so there's almost always something
+    // to read and hit — while never exceeding the hard MAX_NODES cacophony cap.
+    s.refillTimer -= dt;
+    if(s.refillTimer <= 0){
+      s.refillTimer = refillGap(s);
+      if(s.nodes.length < targetNodes(s)) trySpawn(s);
     }
+    // keep legacy spawnTimer ticking (harmless; some tests/poke at it)
+    s.spawnTimer -= dt;
+    if(s.spawnTimer <= 0){ s.spawnTimer = spawnGap(s); }
 
     // --- level up by score ---
     while(s.score >= levelThreshold(s.level)){
@@ -145,7 +179,9 @@ var PhaseCore = (function(){
   }
 
   // How close (in px) is the ring to a node right now. lower = better.
-  function nodeError(s, nd){ return Math.abs(s.ring - s.nodeR); }
+  // Uses the node's OWN orbit radius, so the single ring resonates with each node
+  // at a different moment of its sweep (this is what makes the loop rhythmic).
+  function nodeError(s, nd){ return Math.abs(s.ring - nodeRadius(s, nd)); }
 
   // Find the best resonating node for a Space press (closest to ideal, within window).
   function bestNode(s){
@@ -168,7 +204,7 @@ var PhaseCore = (function(){
       s.chain = 0; s.chainTimer = 0;
       s.health = clamp(s.health - CFG.H_MISTAP, 0, CFG.H_MAX);
       s.stats.miss++;
-      s.events.push({type:"miss", ang:nd.ang});
+      s.events.push({type:"miss", ang:nd.ang, rFrac:nd.rFrac});
       if(s.health<=0){ die(s); }
       return {result:"miss"};
     }
@@ -190,7 +226,7 @@ var PhaseCore = (function(){
     s.health = clamp(s.health + CFG.H_LOCK, 0, CFG.H_MAX);
 
     s.nodes.splice(idx,1);
-    s.events.push({type:"lock", ang:nd.ang, tone:nd.tone, crit:crit, pure:pure,
+    s.events.push({type:"lock", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone, crit:crit, pure:pure,
                    gained:gained, chain:s.chain});
     return {result: crit?"perfect":"good", pure:pure, gained:gained, chain:s.chain};
   }
@@ -238,6 +274,7 @@ var PhaseCore = (function(){
     beatLen:beatLen, windowPx:windowPx, ringTone:ringTone,
     levelThreshold:levelThreshold, tonesForLevel:tonesForLevel,
     nodeLife:nodeLife, spawnGap:spawnGap, chainHold:chainHold,
+    refillGap:refillGap, targetNodes:targetNodes, nodeRadius:nodeRadius,
     clamp:clamp,
   };
 })();
