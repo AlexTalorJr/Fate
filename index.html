@@ -1,1084 +1,866 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PHASE</title>
 <style>
   :root{
-    --void:#05060f; --deep:#0c1326; --ink:#eef1ff; --dim:#7d86b8;
-    --cyan:#27e0d0; --magenta:#ff4d8d; --amber:#ffc14d; --violet:#9a6bff; --green:#5dffa0;
-    --line:rgba(120,140,220,.14);
+    --bg:#04060c; --ink:#e8f4ff; --dim:#5a7494;
+    --cyan:#39e6ff; --magenta:#ff4fd8; --amber:#ffc24b; --violet:#9b7bff;
   }
-  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none}
-  html,body{height:100%;overflow:hidden;background:var(--void);color:var(--ink);
-    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
-  #stage{position:fixed;inset:0}
-  canvas{display:block;touch-action:none;position:absolute;inset:0}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;background:var(--bg);overflow:hidden;}
+  body{
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    user-select:none;-webkit-user-select:none;touch-action:none;
+  }
+  #wrap{position:relative;width:100vw;height:100vh;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 
-  .hud{position:fixed;left:0;right:0;top:0;padding:14px 18px;display:flex;
-    justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:5;
-    font-variant-numeric:tabular-nums;transition:opacity .4s}
-  .hud.dim{opacity:.25}
-  .stat{display:flex;flex-direction:column;gap:3px}
-  .stat .k{font-size:10px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
-  .stat .v{font-size:22px;font-weight:600;letter-spacing:.02em;line-height:1}
-  .stat.c{align-items:center} .stat.r{align-items:flex-end;text-align:right}
-  #lvl .v{color:var(--cyan)} #combo .v{color:var(--amber)}
-  #combo.hot .v{text-shadow:0 0 18px var(--amber)}
-  #combo.flow .v{color:var(--green);text-shadow:0 0 22px var(--green)}
-  .chainbar{height:3px;width:64px;background:rgba(255,193,77,.18);border-radius:2px;margin-top:5px;overflow:hidden}
-  .chainfill{height:100%;width:100%;background:var(--amber);transition:width .1s linear}
-  #combo.flow .chainfill{background:var(--green)}
+  /* HUD */
+  #hud{position:absolute;inset:0;pointer-events:none;}
+  .corner{position:absolute;font-variant-numeric:tabular-nums;letter-spacing:.04em;}
+  #scoreWrap{top:18px;left:50%;transform:translateX(-50%);text-align:center;}
+  #score{font-size:clamp(34px,7vw,58px);font-weight:200;line-height:1;
+    text-shadow:0 0 24px rgba(57,230,255,.35);}
+  #lvl{margin-top:4px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.28em;}
 
-  .lifewrap{position:fixed;left:50%;transform:translateX(-50%);top:46px;width:min(280px,52vw);z-index:5;pointer-events:none;transition:opacity .4s}
-  .lifewrap.dim{opacity:.25}
-  .lifebar{height:4px;border-radius:3px;background:rgba(120,140,220,.12);overflow:hidden;border:1px solid var(--line)}
-  .lifefill{height:100%;width:100%;background:linear-gradient(90deg,var(--cyan),var(--green));transition:width .15s linear,background .3s}
-  .lifefill.warn{background:linear-gradient(90deg,var(--amber),var(--magenta))}
-  .lifefill.crit{background:var(--magenta);animation:lifepulse .5s ease-in-out infinite}
-  @keyframes lifepulse{0%,100%{opacity:.5}50%{opacity:1}}
+  #chainWrap{top:22px;right:20px;text-align:right;opacity:0;transition:opacity .2s;}
+  #chainNum{font-size:clamp(20px,4.5vw,30px);font-weight:300;}
+  #chainBar{height:3px;margin-top:5px;background:var(--cyan);border-radius:2px;
+    transform-origin:right center;box-shadow:0 0 10px var(--cyan);}
 
-  .charge-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;width:min(560px,82vw);z-index:5;pointer-events:none;transition:opacity .4s}
-  .charge-wrap.dim{opacity:.25}
-  .charge-bar{height:9px;border-radius:6px;background:rgba(120,140,220,.12);overflow:hidden;border:1px solid var(--line);position:relative}
-  .charge-fill{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--cyan));transition:width .08s linear}
-  .charge-over{position:absolute;inset:0;width:0;background:linear-gradient(90deg,var(--amber),var(--magenta));opacity:0;transition:opacity .2s}
-  .charge-lab{display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
-  #overlab{color:var(--amber)}
+  #bestWrap{top:24px;left:20px;font-size:11px;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.18em;line-height:1.7;}
+  #bestWrap b{color:#8fb4d8;font-weight:500;}
 
-  .surge{position:fixed;left:50%;top:120px;transform:translateX(-50%);z-index:6;pointer-events:none;
-    font-size:12px;letter-spacing:.4em;text-transform:uppercase;color:var(--magenta);opacity:0;transition:opacity .3s;text-shadow:0 0 18px rgba(255,77,141,.6)}
-  .surge.show{opacity:1}
+  /* health: thin top bar */
+  #hpTrack{position:absolute;top:0;left:0;width:100%;height:3px;background:rgba(120,150,200,.08);}
+  #hpFill{height:100%;width:100%;transform-origin:left center;
+    background:linear-gradient(90deg,var(--magenta),var(--cyan));
+    transition:transform .12s linear, background .3s;}
 
-  .coach{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:6;pointer-events:none;
-    text-align:center;max-width:90vw;opacity:0;transition:opacity .35s}
-  .coach.show{opacity:1}
-  .coach .c1{font-size:clamp(16px,3.4vw,24px);font-weight:600;letter-spacing:.02em;color:var(--ink)}
-  .coach .c2{font-size:12px;letter-spacing:.16em;color:var(--cyan);text-transform:uppercase;margin-top:7px}
+  /* the always-on instruction */
+  #howto{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);
+    font-size:13px;color:var(--dim);letter-spacing:.05em;text-align:center;
+    transition:opacity .4s;}
+  #howto b{color:#9fc2e6;font-weight:500;}
 
-  .scrim{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
-    background:radial-gradient(120% 120% at 50% 35%,rgba(12,19,38,.92),rgba(5,6,15,.985));
-    opacity:0;pointer-events:none;transition:opacity .45s ease}
-  .scrim.show{opacity:1;pointer-events:auto}
-  .panel{max-width:600px;width:90%;text-align:center;padding:8px}
-  .title{font-size:clamp(56px,14vw,140px);font-weight:700;letter-spacing:.14em;line-height:.88;
-    background:linear-gradient(120deg,var(--cyan),var(--violet) 50%,var(--magenta));
-    -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px}
-  .tag{font-size:12px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase;margin-bottom:30px}
-  .lede{font-size:14px;line-height:1.7;color:#c2caf2;margin:0 auto 30px;max-width:400px}
-  .lede b{color:var(--cyan);font-weight:600}
-  .btnrow{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-  .btn{pointer-events:auto;cursor:pointer;border:1px solid var(--cyan);background:transparent;color:var(--cyan);
-    font-family:inherit;font-size:13px;letter-spacing:.28em;text-transform:uppercase;padding:15px 38px;border-radius:40px;transition:.18s;font-weight:600}
-  .btn:hover{background:var(--cyan);color:var(--void);box-shadow:0 0 36px rgba(39,224,208,.55)}
-  .btn:active{transform:scale(.96)}
-  .btn.ghost{border-color:var(--line);color:var(--dim)}
-  .btn.ghost:hover{border-color:var(--dim);background:transparent;color:var(--ink);box-shadow:none}
-  .row{display:flex;gap:34px;justify-content:center;margin-bottom:24px;flex-wrap:wrap}
-  .big{font-size:12px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
-  .big .n{display:block;font-size:36px;letter-spacing:0;margin-top:5px;color:var(--ink);font-weight:600}
-  .big.hl .n{color:var(--amber)}
-  .fine{font-size:11px;color:var(--dim);letter-spacing:.1em;line-height:1.7;margin-top:18px}
-  .pulse{animation:pulse 2.6s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
-  .unlocks{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:6px auto 22px;max-width:460px}
-  .chip{font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:7px 12px;border-radius:20px;border:1px solid var(--line);color:var(--dim)}
-  .chip.on{color:var(--cyan);border-color:var(--cyan)}
-  .chip.new{color:var(--amber);border-color:var(--amber);animation:pulse 1.4s ease-in-out infinite}
-  .rank{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--violet);margin-bottom:14px}
-  .verdict{font-size:15px;letter-spacing:.04em;color:var(--ink);margin:-6px auto 22px;max-width:440px;line-height:1.6}
-  .verdict b{color:var(--amber);font-weight:600}
-  .medals{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin:0 auto 20px;max-width:480px}
-  .medal{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:8px 13px;border-radius:8px;
-    border:1px solid var(--line);color:var(--ink);background:rgba(120,140,220,.06);display:flex;gap:8px;align-items:center}
-  .medal .ic{font-size:13px}
-  .medal.gold{border-color:var(--amber);color:var(--amber);box-shadow:0 0 18px rgba(255,193,77,.18)}
-  .medal.cyan{border-color:var(--cyan);color:var(--cyan)}
-  .medal.violet{border-color:var(--violet);color:var(--violet)}
-  .confetti{position:fixed;inset:0;z-index:11;pointer-events:none;overflow:hidden}
-  .confetti i{position:absolute;top:-12px;width:8px;height:14px;border-radius:2px;opacity:0;
-    animation:fall var(--d,2.4s) ease-in var(--delay,0s) forwards}
-  @keyframes fall{0%{opacity:0;transform:translateY(-20px) rotate(0)}
-    8%{opacity:1}100%{opacity:0;transform:translateY(102vh) rotate(720deg)}}
-  #overTitle.win{background:linear-gradient(120deg,var(--amber),var(--magenta) 60%,var(--violet));
-    filter:drop-shadow(0 2px 24px rgba(255,77,141,.35))}
+  /* center toast (rare events only) */
+  #toast{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%) scale(.7);
+    font-size:clamp(40px,11vw,84px);font-weight:200;letter-spacing:.12em;
+    opacity:0;pointer-events:none;white-space:nowrap;}
 
-  .keyhint{position:fixed;left:18px;bottom:54px;z-index:5;font-size:10px;letter-spacing:.13em;color:var(--dim);
-    pointer-events:none;line-height:1.8;text-transform:uppercase;opacity:.6;transition:opacity .4s}
-  .keyhint.dim{opacity:0}
-  .flash{position:fixed;inset:0;z-index:4;pointer-events:none;opacity:0}
-  .toast{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%);z-index:6;pointer-events:none;text-align:center;opacity:0}
-  .toast .t1{font-size:clamp(28px,7vw,64px);font-weight:700;letter-spacing:.1em;line-height:1}
-  .toast .t2{font-size:12px;letter-spacing:.4em;text-transform:uppercase;color:var(--dim);margin-top:8px}
-  @media (max-width:560px){.keyhint{display:none}.row{gap:22px}}
+  /* overlays */
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;padding:24px;
+    background:radial-gradient(circle at 50% 42%,rgba(8,14,28,.72),rgba(2,4,10,.94));
+    pointer-events:auto;}
+  .hidden{display:none!important;}
+  .title{font-size:clamp(56px,17vw,150px);font-weight:100;letter-spacing:.34em;
+    margin-right:-.34em;
+    background:linear-gradient(120deg,var(--cyan),var(--violet),var(--magenta));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 0 40px rgba(57,230,255,.25));}
+  .tagline{margin-top:18px;font-size:clamp(15px,3.4vw,19px);color:#9fc2e6;
+    letter-spacing:.04em;max-width:30ch;line-height:1.5;}
+  .tagline b{color:var(--cyan);font-weight:600;}
+  .btn{margin-top:38px;padding:16px 46px;font-size:16px;letter-spacing:.22em;
+    font-weight:500;text-transform:uppercase;color:var(--bg);cursor:pointer;
+    border:none;border-radius:40px;
+    background:linear-gradient(120deg,var(--cyan),#7fd4ff);
+    box-shadow:0 0 34px rgba(57,230,255,.5);transition:transform .12s, box-shadow .2s;}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 0 50px rgba(57,230,255,.8);}
+  .btn:active{transform:translateY(0) scale(.97);}
+  .btn.sub{margin-top:14px;padding:11px 30px;font-size:12px;background:none;
+    color:var(--dim);box-shadow:none;border:1px solid rgba(90,116,148,.3);}
+  .btn.sub:hover{color:var(--ink);transform:none;box-shadow:none;}
+
+  /* end screen specifics */
+  #endVerdict{font-size:clamp(38px,10vw,72px);font-weight:200;letter-spacing:.16em;}
+  #endScore{font-size:clamp(60px,16vw,120px);font-weight:100;line-height:1;margin:6px 0;
+    font-variant-numeric:tabular-nums;}
+  #endLine{font-size:14px;color:var(--dim);letter-spacing:.16em;text-transform:uppercase;}
+  #medal{font-size:46px;margin-bottom:6px;}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
 </head>
 <body>
-<div id="stage">
-  <canvas id="cField"></canvas>
+<div id="wrap">
   <canvas id="c"></canvas>
-</div>
 
-<div class="hud" id="hud">
-  <div class="stat" id="lvl"><span class="k">Strata</span><span class="v" id="lvlv">1</span></div>
-  <div class="stat c"><span class="k">Score</span><span class="v" id="scorev">0</span></div>
-  <div class="stat r" id="combo"><span class="k">Chain</span><span class="v" id="combov">&#215;1</span>
-    <div class="chainbar"><div class="chainfill" id="chainfill"></div></div></div>
-</div>
+  <div id="hud">
+    <div id="hpTrack"><div id="hpFill"></div></div>
+    <div id="scoreWrap" class="corner">
+      <div id="score">0</div>
+      <div id="lvl">LEVEL 1</div>
+    </div>
+    <div id="chainWrap" class="corner">
+      <div id="chainNum">×1</div>
+      <div id="chainBar"></div>
+    </div>
+    <div id="bestWrap" class="corner">BEST <b id="best">0</b></div>
+    <div id="howto"><b>Жми</b>, когда кольцо касается точки</div>
+  </div>
+  <div id="toast"></div>
 
-<div class="lifewrap" id="lifeWrap">
-  <div class="lifebar"><div class="lifefill" id="lifefill"></div></div>
-</div>
-
-<div class="charge-wrap" id="chargeWrap">
-  <div class="charge-lab"><span>Phase charge</span><span id="overlab"></span></div>
-  <div class="charge-bar"><div class="charge-fill" id="charge"></div><div class="charge-over" id="chargeOver"></div></div>
-</div>
-
-<div class="surge" id="surge">&#9650; surge incoming</div>
-<div class="coach" id="coach"><div class="c1" id="coach1"></div><div class="c2" id="coach2"></div></div>
-
-<div class="keyhint" id="keyhint">Click &#8212; drop pulsar &#183; Space &#8212; re-sync beat &#183; Hold Shift &#8212; overcharge</div>
-
-<div class="flash" id="flash"></div>
-<div class="toast" id="toast"><div class="t1" id="toastT1"></div><div class="t2" id="toastT2"></div></div>
-
-<div class="scrim show" id="intro">
-  <div class="panel">
+  <!-- START -->
+  <div id="startScreen" class="screen">
     <div class="title">PHASE</div>
-    <div class="tag">an interference field</div>
-    <div class="lede">
-      Drop <b>pulsars</b> &#8212; each one beats out expanding rings. Where two rings
-      cross, a bright <b>spark</b> ignites. Hold your sparks on a target to charge it
-      until it breaks. <b>Keep the beat, keep the chain.</b>
-    </div>
-    <div class="btnrow">
-      <button class="btn pulse" id="startBtn">Teach me</button>
-      <button class="btn ghost" id="skipBtn">Skip intro</button>
-    </div>
-    <div class="fine">best run is remembered</div>
+    <div class="tagline">Из центра расходится кольцо. Лови точку <b>в тот миг</b>, когда кольцо её касается.</div>
+    <button id="startBtn" class="btn">Играть</button>
+    <button id="skipBtn" class="btn sub">Пропустить обучение</button>
+  </div>
+
+  <!-- END -->
+  <div id="endScreen" class="screen hidden">
+    <div id="medal"></div>
+    <div id="endVerdict"></div>
+    <div id="endScore">0</div>
+    <div id="endLine"></div>
+    <button id="againBtn" class="btn">Ещё раз</button>
   </div>
 </div>
-
-<div class="scrim" id="over">
-  <div class="panel">
-    <div class="rank" id="rankLine"></div>
-    <div class="title" id="overTitle" style="font-size:clamp(40px,10vw,96px)">DECOHERED</div>
-    <div class="tag" id="overTag">the field lost phase</div>
-    <div class="verdict" id="verdict"></div>
-    <div class="row">
-      <div class="big"><span>Score</span><span class="n" id="finalScore">0</span></div>
-      <div class="big hl"><span>Best</span><span class="n" id="bestScore">0</span></div>
-      <div class="big"><span>Strata</span><span class="n" id="finalLvl">1</span></div>
-      <div class="big"><span>Peak chain</span><span class="n" id="finalChain">1</span></div>
-    </div>
-    <div class="medals" id="medals"></div>
-    <div class="unlocks" id="unlockList"></div>
-    <button class="btn pulse" id="againBtn">Re-enter</button>
-    <div class="fine" id="overTip"></div>
-  </div>
-</div>
-
-<div class="confetti" id="confetti"></div>
 
 <script>
+/* ============================================================
+   PHASE — v6 radial phase-lock.  One ring, ≤3 nodes, no clutter.
+   Pure logic lives in PhaseCore (DOM-free, unit-tested in regress).
+   ============================================================ */
 "use strict";
-const PHASE_CORE=(function(root){
-"use strict";
+var PhaseCore = (function(){
+  var CFG = {
+    RMIN:0,            // ring starts at center
+    RPAD:30,           // node ring sits this far inside the edge
+    BEAT:1.05, BEAT_FLOOR:0.62, BEAT_STEP:0.035,   // seconds per ring pass
+    WINDOW:28, WINDOW_FLOOR:15, WINDOW_STEP:0.9,    // px tolerance |r - nodeR|
+    CRIT_FRAC:0.34,    // inner fraction of window that counts as PERFECT
+    NODE_R:16,
+    GRACE:0.16,
+    NODE_LIFE:5.4, NODE_LIFE_FLOOR:2.9,             // seconds before a node decoheres
+    SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts
+    MAX_NODES:3,                                    // HARD cap — anti-cacophony
+    CHAIN_MULT:0.15,                                // score = base*(1 + chain*mult)
+    CHAIN_HOLD:3.2, CHAIN_HOLD_FLOOR:1.9,           // seconds before chain decays a step
+    SCORE_BASE:100, CRIT_MULT:3, PURE_MULT:1.5,
+    H_MAX:1.0, H_HIT:0.115, H_MISTAP:0.035,
+    H_LOCK:0.022, H_REGEN:0.006,                    // per-event / per-second
+  };
+  var TONES = ["cyan","magenta","amber","violet"];
 
-const TONES=[
-  {name:"cyan",    rgb:[39,224,208],  freq:392},
-  {name:"magenta", rgb:[255,77,141],  freq:523},
-  {name:"amber",   rgb:[255,193,77],  freq:659},
-  {name:"violet",  rgb:[154,107,255], freq:784},
-];
+  function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+  function lvlFloor(base,floor,step,level){ return Math.max(floor, base - step*(level-1)); }
+  function levelThreshold(level){ return level*2200 + level*level*650; }
+  function tonesForLevel(level){ return Math.min(4, 2 + Math.floor((level-1)/3)); }
 
-const CFG={
-  FIELD_SPEED:150,
-  SOURCE_COST:0.26,
-  SOURCE_LIFE:5.4,       // pulsars live a bit longer so the beat sustains
-  PULSE_PERIOD:0.92,     // a live source re-emits a ring this often (the heartbeat)
-  WAVELENGTH:62,
-  RING_WIDTH:46,
-  FRONT_BAND:34,         // px tolerance for a front "passing" a mark
-  CHARGE_REGEN:0.50,     // per second — faster so you can keep a beat going
-  CHARGE_REFUND:0.16,    // per cleared mark
-  HEALTH_REGEN:0.010,
-  HEALTH_HIT:0.16,       // damage when a mark decoheres (per mark, scaled)
-  HEALTH_REWARD:0.035,
-  CHAIN_WINDOW:3.4,      // generous — the chain is the whole hook, it must be buildable
-  CRIT_CHANCE:0.17,      // variable reward
-  CRIT_MULT:3,
-  OVERCHARGE_MULT:2.2,   // staking mode
-  // resonance: a mark fills by the *proximity* of the nearest qualifying crossing (gaussian),
-  // so even a fast sweep deposits energy on each pass and a few pulses clear the mark. This
-  // turns a binary one-frame "hit" into a satisfying sweep-to-kill you can watch build.
-  RESONANCE_FILL:8.0,    // resonance/sec at a dead-centre crossing (tuned: flank pair clears ~1.3-2s)
-  RESONANCE_DRAIN:0.35,  // resonance/sec bleed when nothing qualifies (slow, so progress sticks)
-  RESONANCE_CAPTURE:1.35,// crossing counts toward "contributing" out to catchR*this
-  RESONANCE_MAX:1.0,
-};
-
-function hypot(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);}
-
-function speedForLevel(level){ return CFG.FIELD_SPEED*(1+(level-1)*0.045); }
-
-// amplitude of the wave field at a point and time (visual layer only)
-function fieldAt(px,py,t,sources,absorbers,level){
-  let sum=0;
-  const spd=speedForLevel(level);
-  const k=2*Math.PI/CFG.WAVELENGTH;
-  const rw=CFG.RING_WIDTH;
-  const W=root.__FIELD_W||1280, H=root.__FIELD_H||720;
-  for(let s of sources){
-    const age=t-s.born; if(age<0) continue;
-    const dist=hypot(px,py,s.x,s.y);
-    const frontR=age*spd;
-    const dr=dist-frontR;
-    if(dr>10 || dr<-260) continue;
-    const envelope=Math.exp(-(dr*dr)/(2*rw*rw));
-    const wave=Math.cos(k*dr);
-    const decay=Math.max(0,1-age/CFG.SOURCE_LIFE)*Math.max(0,1-dist/Math.max(W,H));
-    sum+=wave*envelope*decay;
+  // Create a fresh game state. edgeR = playfield radius in px.
+  function create(edgeR){
+    return {
+      edgeR: edgeR,
+      nodeR: edgeR - CFG.RPAD,        // radius at which nodes live
+      t:0,
+      score:0,
+      level:1,
+      health:CFG.H_MAX,
+      chain:0,
+      chainTimer:0,
+      ring:0,                          // current ring radius
+      ringPrev:0,
+      beatPhase:0,                     // 0..1 within current beat
+      nodes:[],
+      spawnTimer: 0.5,
+      seed: 1234567,
+      alive:true,
+      stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0},
+      // event log for the renderer to react to (consumed each frame)
+      events:[],
+    };
   }
-  for(let a of absorbers){
-    const d=hypot(px,py,a.x,a.y);
-    if(d<a.r) sum*=Math.max(0,d/a.r);
+
+  function rng(s){ s.seed = (s.seed*1103515245 + 12345) & 0x7fffffff; return s.seed/0x7fffffff; }
+
+  function beatLen(s){ return lvlFloor(CFG.BEAT, CFG.BEAT_FLOOR, CFG.BEAT_STEP, s.level); }
+  function windowPx(s){ return lvlFloor(CFG.WINDOW, CFG.WINDOW_FLOOR, CFG.WINDOW_STEP, s.level); }
+  function nodeLife(s){ return lvlFloor(CFG.NODE_LIFE, CFG.NODE_LIFE_FLOOR, 0.42, s.level); }
+  function spawnGap(s){ return lvlFloor(CFG.SPAWN, CFG.SPAWN_FLOOR, 0.16, s.level); }
+  function chainHold(s){ return lvlFloor(CFG.CHAIN_HOLD, CFG.CHAIN_HOLD_FLOOR, 0.18, s.level); }
+
+  function ringTone(s){
+    // ring's current tone cycles each beat through available tones
+    var n = tonesForLevel(s.level);
+    var idx = Math.floor(s.t / beatLen(s)) % n;
+    return TONES[idx];
   }
-  return sum;
-}
 
-// ---- pulsar fronts ----
-// A source is a pulsar: while alive it emits a fresh expanding ring every PULSE_PERIOD.
-// At time t it therefore has SEVERAL concentric live fronts (the current pulse plus the
-// previous ones still expanding). We return all of their radii.
-function sourceDecay(s,t){
-  const age=t-s.born;
-  return Math.max(0,1-age/CFG.SOURCE_LIFE);
-}
-function sourceAlive(s,t){
-  const age=t-s.born;
-  return age>=0 && age<=CFG.SOURCE_LIFE*0.985;
-}
-// All live front radii of a pulsar at time t, sorted large->small. A ring is "live" while
-// its radius is below a cap (it fades once it has travelled a few wavelengths past its peak).
-function frontRadii(s,t,spd){
-  if(!sourceAlive(s,t)) return [];
-  const out=[];
-  const maxAge=CFG.SOURCE_LIFE*0.985;
-  const ringMaxR=CFG.WAVELENGTH*5; // a single emitted ring is meaningful out to ~5 wavelengths
-  // pulses are emitted at s.born + n*PULSE_PERIOD for n=0,1,2,...
-  for(let n=0;;n++){
-    const emit=s.born+n*CFG.PULSE_PERIOD;
-    if(emit>t) break;
-    if(emit>s.born+maxAge) break;
-    const r=(t-emit)*spd;
-    if(r<=ringMaxR) out.push(r);
-  }
-  return out.sort((a,b)=>b-a);
-}
-// Backwards-compatible single-front radius: the leading (current pulse) front, or -1.
-function frontRadius(s,t,spd){
-  if(!sourceAlive(s,t)) return -1;
-  const phase=(t-s.born)%CFG.PULSE_PERIOD;
-  return phase*spd;
-}
-
-// intersection points of two circles (c1,r1),(c2,r2). Returns array of {x,y} (0,1, or 2 pts).
-function circleIntersections(x1,y1,r1,x2,y2,r2){
-  const d=hypot(x1,y1,x2,y2);
-  if(d===0) return [];
-  if(d>r1+r2) return [];          // too far apart
-  if(d<Math.abs(r1-r2)) return []; // one inside the other
-  const a=(r1*r1-r2*r2+d*d)/(2*d);
-  const h2=r1*r1-a*a;
-  if(h2<0) return [];
-  const h=Math.sqrt(h2);
-  const xm=x1+a*(x2-x1)/d, ym=y1+a*(y2-y1)/d;
-  const ox=-(y2-y1)/d*h, oy=(x2-x1)/d*h;
-  if(h<1e-6) return [{x:xm,y:ym}];
-  return [{x:xm+ox,y:ym+oy},{x:xm-ox,y:ym-oy}];
-}
-
-// All live crossing points on the field right now: where any two pulsar fronts intersect.
-// Returns [{x,y,a,b}] where a,b are the contributing source objects. Used by both the
-// resolver and the renderer (the renderer draws these as the bright steerable sparks).
-function liveCrossings(t,sources,level){
-  const spd=speedForLevel(level);
-  const fr=[];
-  for(const s of sources){
-    if(sourceDecay(s,t)<=0.10) continue;
-    for(const r of frontRadii(s,t,spd)) fr.push({s,r});
-  }
-  const out=[];
-  for(let i=0;i<fr.length;i++)for(let j=i+1;j<fr.length;j++){
-    const A=fr[i],B=fr[j];
-    if(A.s===B.s) continue; // don't cross a pulsar's own concentric rings
-    const pts=circleIntersections(A.s.x,A.s.y,A.r,B.s.x,B.s.y,B.r);
-    for(const p of pts) out.push({x:p.x,y:p.y,a:A.s,b:B.s});
-  }
-  return out;
-}
-
-// Evaluate the focus state of a mark right now. Returns null, or a descriptor of how many
-// distinct sources are driving a crossing within the mark's (extended) capture zone, plus
-// pureness and the closeness of the best crossing. Does NOT clear the mark — clearing is
-// gated on resonance (see fillMark).
-function evalMark(m,t,sources,level){
-  if(m.hit) return null;
-  const catchR=m.r+CFG.FRONT_BAND;
-  const capR=catchR*CFG.RESONANCE_CAPTURE;
-  const need=m.isSuper?3:2;
-  const contributing=new Set();
-  const sameTone=new Set();
-  let best=0; // gaussian closeness in [0,1] of the nearest crossing
-  const cx=liveCrossings(t,sources,level);
-  for(const c of cx){
-    const d=hypot(c.x,c.y,m.x,m.y);
-    if(d<=capR){
-      contributing.add(c.a); contributing.add(c.b);
-      if(c.a.tone===m.tone) sameTone.add(c.a);
-      if(c.b.tone===m.tone) sameTone.add(c.b);
-      const w=Math.exp(-(d*d)/(2*catchR*catchR));
-      if(w>best) best=w;
-    }
-  }
-  const contributors=contributing.size;
-  if(contributors>=need && sameTone.size>=1){
-    return {contributors, pure:(sameTone.size===contributors), amp:contributors, close:best};
-  }
-  return null;
-}
-
-// Resonance integration for one mark over dt. Mutates m.res in [0,RESONANCE_MAX].
-// Returns {full, focus} where full=true the instant the mark tops out, focus is the
-// evalMark result (or null). This is the per-frame heartbeat of scoring.
-function fillMark(m,t,dt,sources,level){
-  if(m.hit) return {full:false,focus:null};
-  if(m.res==null) m.res=0;
-  const focus=evalMark(m,t,sources,level);
-  if(focus){
-    // fill by closeness of the nearest crossing; denser lattices (more contributors) fill faster
-    m.res+=CFG.RESONANCE_FILL*dt*focus.close*(1+(focus.contributors-2)*0.45);
-  }else{
-    m.res-=CFG.RESONANCE_DRAIN*dt;
-  }
-  if(m.res<0)m.res=0;
-  let full=false;
-  if(m.res>=CFG.RESONANCE_MAX){ m.res=CFG.RESONANCE_MAX; full=true; }
-  return {full, focus};
-}
-
-// near miss: a crossing is close to (but not on) the mark, or a single front sweeps it.
-function isNearMiss(m,t,sources,level){
-  if(m.hit) return false;
-  const spd=speedForLevel(level);
-  const catchR=m.r+CFG.FRONT_BAND;
-  const nearR=catchR*2.2;
-  const cx=liveCrossings(t,sources,level);
-  for(const c of cx){const d=hypot(c.x,c.y,m.x,m.y); if(d>catchR && d<nearR) return true;}
-  // a lone front sweeping through the mark (no crossing yet)
-  let single=0;
-  for(const s of sources){
-    if(sourceDecay(s,t)<=0.10) continue;
-    for(const r of frontRadii(s,t,spd)){
-      if(Math.abs(hypot(s.x,s.y,m.x,m.y)-r)<CFG.FRONT_BAND){single++;break;}
-    }
-  }
-  return single>=1 && cx.length===0;
-}
-
-// scoring for a confirmed clear
-function scoreHit(hit, chain, overcharge, crit){
-  let g=(90+hit.contributors*40);
-  if(hit.pure) g*=1.6;
-  g*=chain;
-  if(overcharge) g*=CFG.OVERCHARGE_MULT;
-  if(crit) g*=CFG.CRIT_MULT;
-  return Math.round(g);
-}
-
-// score threshold to reach a given level (kept from v4 so progression pace is familiar)
-function levelThreshold(level){ return level*900 + level*level*120; }
-
-function tonesAtLevel(level){ return Math.min(TONES.length, 1+Math.floor((level-1)/3)); }
-
-// mark lifetime shrinks with level but never below floor
-function markLife(level){ return Math.max(2.8, 7.0-(level-1)*0.26); }
-
-// base spawn cadence
-function spawnEvery(level){ return Math.max(0.8, 2.4-(level-1)*0.12); }
-
-// ---- surge rhythm (the "wave" pulse that makes the session breathe) ----
-// The game alternates calm and surge windows. During a surge, marks spawn in bursts.
-// Returns {phase:"calm"|"surge", k} where k in [0,1] is progress through the current window.
-function surgeState(t){
-  const CALM=11, SURGE=5, period=CALM+SURGE;
-  const x=t%period;
-  if(x<CALM) return {phase:"calm", k:x/CALM};
-  return {phase:"surge", k:(x-CALM)/SURGE};
-}
-
-// ---- prediction (the teaching + aiming UX) ----
-// If a NEW pulsar were dropped at (px,py) now, will its expanding rings cross an existing
-// pulsar's rings on top of a live mark soon? Returns {mark,when,quality,dt} or null.
-function predictDrop(px,py,t,sources,marks,level){
-  const spd=speedForLevel(level);
-  const fresh={x:px,y:py,born:t,tone:0};
-  let best=null;
-  const horizon=CFG.PULSE_PERIOD*1.6; // look ~one-and-a-bit beats ahead
-  const dtStep=0.035;
-  for(const m of marks){
-    if(m.hit) continue;
-    const catchR=m.r+CFG.FRONT_BAND;
-    for(let dtT=0.02; dtT<horizon; dtT+=dtStep){
-      const tt=t+dtT;
-      if(tt>t+(m.life||horizon)) break;
-      // does any fresh-pulsar front pass within catchR of the mark at tt?
-      const freshR=frontRadii(fresh,tt,spd);
-      let freshOn=false;
-      for(const r of freshR){ if(Math.abs(hypot(px,py,m.x,m.y)-r)<=catchR){freshOn=true;break;} }
-      if(!freshOn) continue;
-      // is there an existing source whose front also passes the mark at tt?
-      for(const s of sources){
-        if(sourceDecay(s,tt)<=0.10) continue;
-        let on=false;
-        for(const r of frontRadii(s,tt,spd)){ if(Math.abs(hypot(s.x,s.y,m.x,m.y)-r)<=catchR){on=true;break;} }
-        if(on){
-          const quality=Math.max(0,1-dtT/horizon);
-          if(!best||quality>best.quality) best={mark:m,when:tt,quality,dt:dtT};
-          break;
-        }
+  function trySpawn(s){
+    if(s.nodes.length >= CFG.MAX_NODES) return;
+    var n = tonesForLevel(s.level);
+    // place at an angle away from existing nodes for readability
+    var ang, ok=false, tries=0;
+    do{
+      ang = rng(s)*Math.PI*2;
+      ok = true;
+      for(var i=0;i<s.nodes.length;i++){
+        var d = Math.abs(((ang - s.nodes[i].ang + Math.PI)%(Math.PI*2)) - Math.PI);
+        if(d < 0.9){ ok=false; break; }
       }
-      if(best&&best.mark===m) break;
+      tries++;
+    } while(!ok && tries<8);
+    s.nodes.push({
+      ang: ang,
+      tone: TONES[Math.floor(rng(s)*n)],
+      life: nodeLife(s),
+      maxLife: nodeLife(s),
+      born: s.t,
+      hit:false,
+      // pop animation handled by renderer via events
+    });
+  }
+
+  // advance simulation by dt seconds
+  function step(s, dt){
+    if(!s.alive) return;
+    s.t += dt;
+    s.events.length = 0;
+
+    // --- ring travels center -> edge over one beat, then resets ---
+    var bl = beatLen(s);
+    s.beatPhase += dt / bl;
+    var crossed = false;
+    while(s.beatPhase >= 1){ s.beatPhase -= 1; crossed = true; }
+    s.ringPrev = s.ring;
+    s.ring = Math.max(0, s.beatPhase * s.edgeR);
+    if(crossed){ s.events.push({type:"beat"}); }
+
+    // --- chain decay ---
+    if(s.chain > 0){
+      s.chainTimer -= dt;
+      if(s.chainTimer <= 0){
+        s.chain = Math.max(0, s.chain - 1);
+        s.chainTimer = chainHold(s);
+        if(s.chain===0) s.events.push({type:"chainlost"});
+      }
+    }
+
+    // --- nodes age / decohere ---
+    for(var i=s.nodes.length-1;i>=0;i--){
+      var nd = s.nodes[i];
+      nd.life -= dt;
+      if(nd.life <= 0){
+        s.nodes.splice(i,1);
+        s.stats.decohered++;
+        s.chain = 0; s.chainTimer = 0;
+        s.health = clamp(s.health - CFG.H_HIT, 0, CFG.H_MAX);
+        s.events.push({type:"decohere", ang:nd.ang, tone:nd.tone});
+        if(s.health<=0){ die(s); return; }
+      }
+    }
+
+    // --- passive: tiny health drain so idling is fatal, small regen otherwise ---
+    s.health = clamp(s.health + (CFG.H_REGEN - CFG.H_LOCK*0) * dt, 0, CFG.H_MAX);
+
+    // --- spawn ---
+    s.spawnTimer -= dt;
+    if(s.spawnTimer <= 0){
+      s.spawnTimer = spawnGap(s);
+      trySpawn(s);
+    }
+
+    // --- level up by score ---
+    while(s.score >= levelThreshold(s.level)){
+      s.level++;
+      s.events.push({type:"levelup", level:s.level});
     }
   }
-  return best;
-}
 
-const API={TONES,CFG,hypot,speedForLevel,fieldAt,evalMark,fillMark,isNearMiss,scoreHit,
-  levelThreshold,tonesAtLevel,markLife,spawnEvery,surgeState,
-  frontRadius,frontRadii,sourceDecay,sourceAlive,circleIntersections,liveCrossings,predictDrop};
+  // How close (in px) is the ring to a node right now. lower = better.
+  function nodeError(s, nd){ return Math.abs(s.ring - s.nodeR); }
 
-root.PHASE_CORE=API;
-return API;
-})(window);
+  // Find the best resonating node for a Space press (closest to ideal, within window).
+  function bestNode(s){
+    var win = windowPx(s);
+    var best=-1, bestErr=1e9;
+    for(var i=0;i<s.nodes.length;i++){
+      var e = nodeError(s, s.nodes[i]);
+      if(e <= win && e < bestErr){ bestErr=e; best=i; }
+    }
+    return best;
+  }
+
+  // Resolve a hit on node index idx. Returns result object or null.
+  function resolveHit(s, idx){
+    var nd = s.nodes[idx];
+    var win = windowPx(s);
+    var err = nodeError(s, nd);
+    if(err > win){
+      // mistimed press on a node -> break chain, small penalty
+      s.chain = 0; s.chainTimer = 0;
+      s.health = clamp(s.health - CFG.H_MISTAP, 0, CFG.H_MAX);
+      s.stats.miss++;
+      s.events.push({type:"miss", ang:nd.ang});
+      if(s.health<=0){ die(s); }
+      return {result:"miss"};
+    }
+    // hit!
+    var crit = err <= win*CFG.CRIT_FRAC;
+    var pure = nd.tone === ringTone(s);
+    var mult = 1;
+    if(crit){ mult *= CFG.CRIT_MULT; s.stats.perfect++; }
+    else { s.stats.good++; }
+    if(pure){ mult *= CFG.PURE_MULT; s.stats.pure++; }
+
+    var chainBonus = 1 + s.chain*CFG.CHAIN_MULT;
+    var gained = Math.round(CFG.SCORE_BASE * mult * chainBonus);
+    s.score += gained;
+    s.chain++;
+    s.chainTimer = chainHold(s);
+    if(s.chain > s.stats.maxChain) s.stats.maxChain = s.chain;
+    s.stats.locks++;
+    s.health = clamp(s.health + CFG.H_LOCK, 0, CFG.H_MAX);
+
+    s.nodes.splice(idx,1);
+    s.events.push({type:"lock", ang:nd.ang, tone:nd.tone, crit:crit, pure:pure,
+                   gained:gained, chain:s.chain});
+    return {result: crit?"perfect":"good", pure:pure, gained:gained, chain:s.chain};
+  }
+
+  // Player pressed Space (auto-target). Returns result or null (empty press).
+  function pressSpace(s){
+    if(!s.alive) return null;
+    var idx = bestNode(s);
+    if(idx < 0){
+      // space in empty space -> tiny penalty (anti-mash), softer than a real miss
+      s.health = clamp(s.health - CFG.H_MISTAP*0.6, 0, CFG.H_MAX);
+      if(s.chain >= 3){ s.chain = 0; s.chainTimer = 0; }
+      s.events.push({type:"emptypress"});
+      if(s.health<=0){ die(s); }
+      return {result:"empty"};
+    }
+    return resolveHit(s, idx);
+  }
+
+  // Player tapped at screen angle `ang` (radians) within tap tolerance.
+  // angTol in radians; if no node near that angle, it's an empty tap (no penalty).
+  function pressAt(s, ang, angTol){
+    if(!s.alive) return null;
+    var best=-1, bestD=1e9;
+    for(var i=0;i<s.nodes.length;i++){
+      var d = Math.abs(((ang - s.nodes[i].ang + Math.PI)%(Math.PI*2)) - Math.PI);
+      if(d < angTol && d < bestD){ bestD=d; best=i; }
+    }
+    if(best < 0){
+      s.events.push({type:"emptytap"});   // clicking empty space is free
+      return {result:"emptytap"};
+    }
+    return resolveHit(s, best);
+  }
+
+  function die(s){
+    s.alive = false;
+    s.events.push({type:"death"});
+  }
+
+  return {
+    CFG:CFG, TONES:TONES,
+    create:create, step:step, pressSpace:pressSpace, pressAt:pressAt,
+    resolveHit:resolveHit, bestNode:bestNode, nodeError:nodeError,
+    beatLen:beatLen, windowPx:windowPx, ringTone:ringTone,
+    levelThreshold:levelThreshold, tonesForLevel:tonesForLevel,
+    nodeLife:nodeLife, spawnGap:spawnGap, chainHold:chainHold,
+    clamp:clamp,
+  };
+})();
+if(typeof module!=="undefined" && module.exports){ module.exports = PhaseCore; }
 </script>
 
 <script>
-"use strict";
-(()=>{
-const C=PHASE_CORE;
-const fieldCv=document.getElementById("cField"), fctx=fieldCv.getContext("2d");
-const cv=document.getElementById("c"), ctx=cv.getContext("2d");
-const $=id=>document.getElementById(id);
-let W=0,H=0,DPR=1;
+/* ============================================================
+   PHASE — renderer / audio / input  (the "juice" layer)
+   ============================================================ */
+(function(){
+  if(typeof document==="undefined") return;  // headless guard
+  var C = PhaseCore;
 
-function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,2);
-  W=window.innerWidth;H=window.innerHeight;
-  window.__FIELD_W=W; window.__FIELD_H=H;
-  for(const cc of [cv,fieldCv]){cc.width=W*DPR;cc.height=H*DPR;cc.style.width=W+"px";cc.style.height=H+"px";}
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-}
-window.addEventListener("resize",resize); resize();
+  var cv = document.getElementById("c");
+  var ctx = cv.getContext("2d", {alpha:false});
+  var DPR = Math.min(2, window.devicePixelRatio||1);
+  var W=0,H=0, CX=0,CY=0, edgeR=0;
 
-// ---------- audio ----------
-let AC=null,master=null;
-function audio(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();
-  master=AC.createGain();master.gain.value=0.9;master.connect(AC.destination);}catch(e){}}return AC;}
-function blip(freq,dur=0.12,type="sine",gain=0.18){
-  const a=audio();if(!a)return;const o=a.createOscillator(),g=a.createGain();
-  o.type=type;o.frequency.value=freq;o.connect(g);g.connect(master);
-  const t=a.currentTime;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(gain,t+0.012);
-  g.gain.exponentialRampToValueAtTime(0.0008,t+dur);o.start(t);o.stop(t+dur+0.02);}
-function chord(base,n,kind){const r=[1,1.5,2,2.5,3,4];for(let i=0;i<n&&i<r.length;i++)
-  setTimeout(()=>blip(base*r[i],0.18,kind||"triangle",0.11),i*34);}
-function bass(freq,dur){const a=audio();if(!a)return;const o=a.createOscillator(),g=a.createGain();
-  o.type="sine";o.frequency.value=freq;o.connect(g);g.connect(master);const t=a.currentTime;
-  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);
-  g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur+0.05);}
-// a soft metronome tick on each pulsar beat — makes the rhythm audible (the "slot lever" cadence)
-function tick(){blip(1400,0.03,"sine",0.025);}
+  var TONE_HEX = {cyan:"#39e6ff", magenta:"#ff4fd8", amber:"#ffc24b", violet:"#9b7bff"};
+  var TONE_FREQ = {cyan:523.25, magenta:659.25, amber:783.99, violet:987.77}; // C5 E5 G5 B5
 
-// ---------- meta ----------
-const META={best:+(localStorage.getItem("phase_best")||0),
-  peakLevel:+(localStorage.getItem("phase_peaklvl")||1),
-  runs:+(localStorage.getItem("phase_runs")||0),
-  taught:localStorage.getItem("phase_taught")==="1"};
-const RANKS=[[0,"Drifter"],[3000,"Tuner"],[9000,"Resonant"],[20000,"Phase-walker"],[45000,"Standing Wave"],[90000,"Coherence"]];
-function rankFor(s){let r=RANKS[0][1];for(const[v,n]of RANKS)if(s>=v)r=n;return r;}
-const UNLOCKS=[
-  {lvl:1,key:"core",label:"Foci"},{lvl:2,key:"tone2",label:"2nd tone"},
-  {lvl:4,key:"moving",label:"Moving marks"},{lvl:4,key:"tone3",label:"3rd tone"},
-  {lvl:5,key:"absorb",label:"Voids"},{lvl:7,key:"super",label:"Superposition"},
-  {lvl:7,key:"tone4",label:"4th tone"},{lvl:10,key:"twin",label:"Twin marks"}];
-function unlockedAt(p){return UNLOCKS.filter(u=>p>=u.lvl).map(u=>u.key);}
-
-// ---------- state ----------
-const G={state:"intro",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
-  charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
-  spawnT:0,health:1,shake:0,lastSound:0,grace:0,lastBeat:0,surgePhase:"calm",
-  stat:{focuses:0,crits:0,supers:0,pures:0,bestHit:0,missed:0,runStart:0},
-  tut:null};
-
-let mx=W/2,my=H/2,shiftHeld=false,hasMouse=false;
-cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hasMouse=true;});
-cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;hasMouse=true;onTap();});
-window.addEventListener("keydown",e=>{
-  if(e.code==="Space"){e.preventDefault();pulseAll();}
-  if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=true;});
-window.addEventListener("keyup",e=>{if(e.code==="ShiftLeft"||e.code==="ShiftRight")shiftHeld=false;});
-
-function onTap(){
-  if(G.state!=="play")return;
-  if(G.tut){ G.tut.onTap(); return; }
-  dropSource();
-}
-
-// ---------- actions ----------
-function dropSource(forceTone){
-  const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);
-  if(G.charge<cost){deny();return false;}
-  G.charge-=cost; if(shiftHeld)G.over=true;
-  let tone = (forceTone!=null)?forceTone:Math.floor(Math.random()*C.tonesAtLevel(G.level));
-  if(forceTone==null){let near=null,nd=1e9;
-    for(const m of G.marks){const d=(m.x-mx)**2+(m.y-my)**2;if(d<nd){nd=d;near=m;}}
-    if(near&&Math.sqrt(nd)<280)tone=near.tone;}
-  G.sources.push({x:mx,y:my,born:G.t,tone,over:shiftHeld});
-  if(G.sources.length>12)G.sources.shift();   // hard cap keeps render cost flat
-  blip(C.TONES[tone].freq*0.5,0.09,"sine",0.10);
-  burst(mx,my,C.TONES[tone].rgb,10,40);
-  return true;
-}
-function pulseAll(){
-  if(G.state!=="play"||G.tut)return;
-  if(G.charge<0.45){deny();return;}
-  G.charge-=0.45;
-  for(const s of G.sources)s.born=G.t;   // re-sync every pulsar to a single beat
-  G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:[154,107,255]});
-  blip(180,0.3,"sawtooth",0.10);blip(240,0.25,"sawtooth",0.07);
-}
-function deny(){G.shake=Math.min(G.shake+3,8);blip(90,0.06,"square",0.05);}
-
-// ---------- spawning ----------
-function spawnMark(forceSuper,opts){
-  opts=opts||{};
-  const pad=90;
-  const tone=opts.tone!=null?opts.tone:Math.floor(Math.random()*C.tonesAtLevel(G.level));
-  const canMove=!opts.still&&G.level>=4&&Math.random()<Math.min(0.1+(G.level-4)*0.06,0.55);
-  const isSuper=!!forceSuper||(!opts.still&&G.level>=7&&Math.random()<0.10);
-  let vx=0,vy=0;
-  if(canMove){const a=Math.random()*7,sp=16+Math.random()*20*Math.min((G.level-3)/4,3);vx=Math.cos(a)*sp;vy=Math.sin(a)*sp;}
-  let life=C.markLife(G.level)*(isSuper?1.4:1);
-  if(opts.life)life=opts.life;
-  const m={x:opts.x!=null?opts.x:pad+Math.random()*(W-2*pad),
-    y:opts.y!=null?opts.y:pad+50+Math.random()*(H-2*pad-90),
-    tone,r:0,life,maxlife:life,vx,vy,hit:false,phase:Math.random()*7,isSuper,nearGlow:0,_nm:false,res:0};
-  G.marks.push(m); return m;
-}
-function spawnAbsorber(){const pad=130;
-  G.absorbers.push({x:pad+Math.random()*(W-2*pad),y:pad+Math.random()*(H-2*pad),r:44+Math.random()*30,age:0});}
-
-// ---------- hit resolution ----------
-// v5: marks fill with resonance while a crossing sits on them; clear when full.
-function resolveFoci(dt){
-  for(const m of G.marks){
-    if(m.hit)continue;
-    const r=C.fillMark(m,G.t,dt,G.sources,G.level);
-    if(r.full && r.focus){ doHit(m,r.focus); continue; }
-    // near-miss feedback when not actively filling
-    if(!r.focus){
-      m.nearGlow=C.isNearMiss(m,G.t,G.sources,G.level)?Math.min(1,m.nearGlow+0.35):Math.max(0,m.nearGlow-0.08);
-      if(m.nearGlow>0.7&&!m._nm){m._nm=true;blip(C.TONES[m.tone].freq*1.5,0.05,"sine",0.05);}
-      if(m.nearGlow<0.3)m._nm=false;
-    } else { m.nearGlow=Math.max(0,m.nearGlow-0.1); }
+  function resize(){
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W*DPR; cv.height = H*DPR;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    CX = W/2; CY = H/2;
+    edgeR = Math.min(W,H)*0.5 - 18;
+    if(G){ G.edgeR = edgeR; G.nodeR = edgeR - C.CFG.RPAD; }
   }
-  G.marks=G.marks.filter(m=>!m.hit);
-}
-function doHit(m,hit){
-  m.hit=true;
-  const crit=!G.tut && Math.random()<C.CFG.CRIT_CHANCE;
-  const over=G.over&&G.sources.some(s=>s.over);
-  let gain=C.scoreHit(hit,G.chain,over,crit); if(m.isSuper)gain*=4; gain=Math.round(gain);
-  G.score+=gain;
-  G.chain=Math.min(G.chain+1,99); G.peakChain=Math.max(G.peakChain,G.chain);
-  G.chainTimer=C.CFG.CHAIN_WINDOW;
-  G.charge=Math.min(1,G.charge+C.CFG.CHARGE_REFUND+(crit?0.1:0));
-  G.health=Math.min(1,G.health+C.CFG.HEALTH_REWARD);
-  const big=crit||m.isSuper;
-  burst(m.x,m.y,C.TONES[m.tone].rgb,big?44:24,big?300:210);
-  G.shock.push({x:m.x,y:m.y,r:0,max:(big?280:160)+hit.contributors*40,born:G.t,col:C.TONES[m.tone].rgb});
-  G.foci.push({x:m.x,y:m.y,age:0,col:m.isSuper?[255,255,255]:C.TONES[m.tone].rgb,big});
-  if(big)G.shake=Math.min(G.shake+(m.isSuper?16:9),20);
-  let label=(hit.pure?"PURE ":"")+"+"+gain;
-  if(crit)label="CRIT "+label; if(m.isSuper)label="SUPER "+label;
-  popText(m.x,m.y,label,(m.isSuper||crit)?"#fff":C.TONES[m.tone].c,big?20:15);
-  if(G.chain>1 && G.chain%5===0) popText(m.x,m.y-26,"CHAIN \u00d7"+G.chain,"#ffc14d",16);
-  if(!G.tut){const st=G.stat; st.focuses++; if(crit)st.crits++; if(m.isSuper)st.supers++;
-    if(hit.pure)st.pures++; if(gain>st.bestHit)st.bestHit=gain;}
-  const now=performance.now();
-  if(now-G.lastSound>30){chord(C.TONES[m.tone].freq*(crit?1.5:1),Math.min(hit.contributors+(big?2:0),5),crit?"sawtooth":"triangle");if(big)bass(70,0.4);G.lastSound=now;}
-  if(G.tut)G.tut.onHit(m);
-}
+  window.addEventListener("resize", resize);
 
-// ---------- fx ----------
-const texts=[];
-function popText(x,y,s,col,size){texts.push({x,y,s,col,age:0,life:1.15,size:size||15});}
-function burst(x,y,rgb,n,spread){for(let i=0;i<n;i++){const a=Math.random()*7,sp=40+Math.random()*spread;
-  G.parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.5+Math.random()*0.6,age:0,col:rgb,r:1+Math.random()*2.6});}}
+  /* ---------- audio ---------- */
+  var AC=null, master=null;
+  function audioInit(){
+    if(AC) return;
+    try{
+      AC = new (window.AudioContext||window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value=0.32; master.connect(AC.destination);
+    }catch(e){ AC=null; }
+  }
+  function tone(freq, dur, type, gain, when){
+    if(!AC) return;
+    var t = when||AC.currentTime;
+    var o = AC.createOscillator(), g = AC.createGain();
+    o.type = type||"sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(gain||0.3, t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+(dur||0.18));
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t+(dur||0.18)+0.02);
+  }
+  function chord(base, chainStep){
+    if(!AC) return;
+    var f = base * Math.pow(2, Math.min(chainStep,12)/12);  // rises with chain
+    tone(f, 0.22, "triangle", 0.34);
+    tone(f*1.5, 0.18, "sine", 0.16);
+  }
+  function thud(){ tone(70,0.16,"sine",0.4); }
+  function tick(){ tone(180,0.05,"sine",0.05); }
 
-let toastT=0;
-function toast(t1,t2,col){const e=$("toast");$("toastT1").textContent=t1;$("toastT1").style.color=col||"#fff";
-  $("toastT2").textContent=t2||"";e.style.transition="none";e.style.opacity="1";e.style.transform="translate(-50%,-50%) scale(1)";toastT=1.4;}
-function tickToast(dt){if(toastT>0){toastT-=dt;const e=$("toast");
-  if(toastT<=0){e.style.transition="opacity .5s, transform .5s";e.style.opacity="0";e.style.transform="translate(-50%,-58%) scale(1.05)";}}}
-function flashScreen(col){const f=$("flash");f.style.background=col||"#ff4d8d";f.style.transition="none";f.style.opacity="0.45";
-  requestAnimationFrame(()=>{f.style.transition="opacity .5s ease";f.style.opacity="0";});}
-
-function coach(c1,c2){const e=$("coach");$("coach1").innerHTML=c1||"";$("coach2").textContent=c2||"";
-  e.classList.toggle("show",!!c1);}
-function dimHud(on){$("hud").classList.toggle("dim",on);$("chargeWrap").classList.toggle("dim",on);
-  $("keyhint").classList.toggle("dim",on);$("lifeWrap").classList.toggle("dim",on);}
-
-// ---------- level ----------
-function levelUp(){
-  G.level++; $("lvlv").textContent=G.level;
-  if(G.level>=5&&G.level%5===0&&G.absorbers.length<3)spawnAbsorber();
-  G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:[39,224,208]});
-  blip(330,0.4,"triangle",0.10);blip(440,0.35,"triangle",0.08);bass(90,0.3);
-  const j=UNLOCKS.filter(u=>u.lvl===G.level);
-  toast("STRATA "+G.level, j.length?j.map(u=>u.label).join(" \u00b7 "):"the field quickens","#27e0d0");
-}
-
-// ============================================================
-//  TUTORIAL — interactive, hand-held. Teaches: drop two pulsars
-//  FLANKING a target, watch the spark charge it, then do it solo.
-// ============================================================
-function makeTutorial(){
-  let step=0, mark=null, waiting=false, doneT=0;
-  function ghost(x,y){return {x,y,t:0};}
-  let ghostMarker=null;
-
-  function setStep(n){
-    step=n;
-    if(n===0){
-      coach("A target. Drop a pulsar on the <b>glowing ring</b> beside it.","step 1 of 3 \u00b7 click the ring");
-      mark=spawnMark(false,{x:W*0.5,y:H*0.46,tone:0,still:true,life:999});
-      ghostMarker=ghost(W*0.5-150,H*0.46);
-    }else if(n===1){
-      coach("Now a <b>second pulsar</b> on the other side.","step 2 of 3 \u00b7 flank the target");
-      ghostMarker=ghost(W*0.5+150,H*0.46);
-    }else if(n===2){
-      coach("Watch the rings cross and <b>charge the target</b> until it breaks\u2026","");
-      ghostMarker=null; waiting=true;
-    }else if(n===3){
-      coach("That's a <b>focus</b>. Keep two pulsars flanking a target to charge it.","step 3 of 3 \u00b7 now clear one yourself");
-      mark=spawnMark(false,{x:W*0.42+Math.random()*W*0.16,y:H*0.40+Math.random()*H*0.14,tone:0,still:true,life:999});
-      ghostMarker=null; waiting=false;
-    }else if(n===4){
-      coach("You've got it. Targets <b>fade</b> \u2014 clear them before they vanish.","entering the field\u2026");
-      doneT=2.0;
+  /* ---------- particles (capped, short) ---------- */
+  var PCAP = 80;
+  var parts = [];
+  function burst(x,y,hex,n,spd,big){
+    n = Math.min(n, PCAP - parts.length);
+    for(var i=0;i<n;i++){
+      var a = Math.random()*Math.PI*2, v = spd*(0.5+Math.random());
+      parts.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,
+        life:1,decay:0.035+Math.random()*0.03,hex:hex,r:(big?2.2:1.3)+Math.random()*1.2});
     }
   }
-  setStep(0);
+  function updateParts(dt){
+    for(var i=parts.length-1;i>=0;i--){
+      var p=parts[i];
+      p.x+=p.vx; p.y+=p.vy; p.vx*=0.94; p.vy*=0.94;
+      p.life-=p.decay;
+      if(p.life<=0) parts.splice(i,1);
+    }
+  }
+  function drawParts(){
+    ctx.globalCompositeOperation="lighter";
+    for(var i=0;i<parts.length;i++){
+      var p=parts[i];
+      ctx.globalAlpha=Math.max(0,p.life);
+      ctx.fillStyle=p.hex;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
+  }
 
-  return {
-    ghostMarker:()=>ghostMarker,
-    onTap(){
-      if(step===0){
-        if(ghostMarker){mx=ghostMarker.x;my=ghostMarker.y;}
-        dropSource(0); setStep(1);
-      }else if(step===1){
-        if(ghostMarker){mx=ghostMarker.x;my=ghostMarker.y;}
-        dropSource(0); setStep(2);
-      }else if(step===3){
-        dropSource(0);
+  // expanding shock ring on PERFECT only (one at a time-ish)
+  var shocks=[];
+  function shock(hex){ if(shocks.length<3) shocks.push({r:edgeR*0.4,a:0.8,hex:hex}); }
+
+  /* ---------- screen kick ---------- */
+  var kick=0;
+  function addKick(v){ kick=Math.min(kick+v, 14); }
+
+  /* ---------- toast (rare) ---------- */
+  var toastEl=document.getElementById("toast");
+  var toastT=0;
+  function showToast(txt,hex){
+    toastEl.textContent=txt;
+    toastEl.style.color=hex||"#fff";
+    toastEl.style.textShadow="0 0 40px "+(hex||"#fff");
+    toastEl.style.transition="none";
+    toastEl.style.opacity="1";
+    toastEl.style.transform="translate(-50%,-50%) scale(1.12)";
+    // force reflow then animate out
+    void toastEl.offsetWidth;
+    toastEl.style.transition="opacity .7s, transform .7s";
+    toastEl.style.opacity="0";
+    toastEl.style.transform="translate(-50%,-50%) scale(.85)";
+  }
+
+  /* ---------- HUD refs ---------- */
+  var scoreEl=document.getElementById("score"),
+      lvlEl=document.getElementById("lvl"),
+      bestEl=document.getElementById("best"),
+      chainWrap=document.getElementById("chainWrap"),
+      chainNum=document.getElementById("chainNum"),
+      chainBar=document.getElementById("chainBar"),
+      hpFill=document.getElementById("hpFill"),
+      howto=document.getElementById("howto");
+
+  var scoreShown=0;
+
+  /* ---------- game state ---------- */
+  var G=null;
+  var running=false, last=0, taught=false;
+  var BEST = +(localStorage.getItem("phase6_best")||0);
+  var RUNS = +(localStorage.getItem("phase6_runs")||0);
+  taught = localStorage.getItem("phase6_taught")==="1";
+  bestEl.textContent = BEST;
+
+  // tutorial overlay state (lightweight, drawn on canvas)
+  var tut={on:false, step:0, hold:0};
+
+  function startGame(withTutorial){
+    audioInit();
+    if(AC && AC.state==="suspended") AC.resume();
+    resize();
+    G = C.create(edgeR);
+    G.nodeR = edgeR - C.CFG.RPAD;
+    parts.length=0; shocks.length=0; kick=0; scoreShown=0;
+    tut.on = withTutorial && !taught;
+    tut.step=0; tut.hold=0;
+    document.getElementById("startScreen").classList.add("hidden");
+    document.getElementById("endScreen").classList.add("hidden");
+    chainWrap.style.opacity="0";
+    howto.style.opacity="1";
+    running=true; last=performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function endGame(){
+    running=false;
+    RUNS++; localStorage.setItem("phase6_runs", RUNS);
+    var rec = G.score > BEST;
+    if(rec){ BEST=G.score; localStorage.setItem("phase6_best", BEST); }
+    bestEl.textContent = BEST;
+
+    var verdict = document.getElementById("endVerdict"),
+        es = document.getElementById("endScore"),
+        el = document.getElementById("endLine"),
+        md = document.getElementById("medal");
+
+    var st = G.stats;
+    // medal by performance
+    var acc = st.locks / Math.max(1, st.locks+st.miss+st.decohered);
+    var medal = "✦";
+    if(rec) medal="◈";
+    else if(G.level>=6 || acc>0.85) medal="◆";
+    else if(G.level>=3) medal="◇";
+    md.textContent = medal;
+
+    if(rec){
+      verdict.textContent="RESONANCE";
+      verdict.style.color="#39e6ff";
+      verdict.style.textShadow="0 0 40px rgba(57,230,255,.6)";
+      showToast("",""); // clear
+      // celebratory chord + confetti
+      audioInit();
+      if(AC){ chord(523.25,0); chord(659.25,4); chord(783.99,7); }
+      for(var i=0;i<4;i++) setTimeout(function(){
+        burst(CX,CY,["#39e6ff","#ff4fd8","#ffc24b","#9b7bff"][Math.floor(Math.random()*4)],18,9,true);
+      }, i*90);
+    } else {
+      verdict.textContent="DECOHERED";
+      verdict.style.color="#ff4fd8";
+      verdict.style.textShadow="0 0 30px rgba(255,79,216,.4)";
+    }
+    es.textContent = G.score;
+    el.textContent = "LEVEL "+G.level+"  ·  ЦЕПЬ ×"+st.maxChain+"  ·  PERFECT "+st.perfect;
+
+    // run a couple particle frames so confetti shows on the static end screen
+    var fr=0;
+    (function tail(){
+      if(fr++>90) return;
+      ctx.fillStyle="rgba(4,6,12,0.28)"; ctx.fillRect(0,0,W,H);
+      updateParts(1); drawParts();
+      requestAnimationFrame(tail);
+    })();
+
+    setTimeout(function(){
+      document.getElementById("endScreen").classList.remove("hidden");
+    }, rec?700:350);
+  }
+
+  /* ---------- event consumption (juice) ---------- */
+  function consumeEvents(){
+    for(var i=0;i<G.events.length;i++){
+      var e=G.events[i];
+      var pos;
+      if(e.ang!==undefined){ pos={x:CX+Math.cos(e.ang)*G.nodeR, y:CY+Math.sin(e.ang)*G.nodeR}; }
+      if(e.type==="beat"){ tick(); }
+      else if(e.type==="lock"){
+        var hex=TONE_HEX[e.tone];
+        if(e.crit){
+          burst(pos.x,pos.y,hex,16,7,true);
+          burst(CX,CY,hex,8,5,false);
+          shock(hex); addKick(9); chord(TONE_FREQ[e.tone], e.chain);
+          if(e.chain>=5 && e.chain%5===0) showToast("×"+e.chain, hex);
+          else showToast("PERFECT", hex);
+        } else {
+          burst(pos.x,pos.y,hex,9,5,false);
+          addKick(4); tone(TONE_FREQ[e.tone], 0.16, e.pure?"triangle":"sine", 0.26);
+        }
       }
-    },
-    onHit(m){
-      if(step===2){ setStep(3); }
-      else if(step===3){ setStep(4); }
-    },
-    update(dt){
-      if(ghostMarker)ghostMarker.t+=dt;
-      for(const m of G.marks)m.life=Math.max(m.life,5);
-      if(doneT>0){doneT-=dt; if(doneT<=0)finishTutorial();}
-    }
-  };
-}
-function finishTutorial(){
-  G.tut=null; coach("",""); dimHud(false);
-  localStorage.setItem("phase_taught","1"); META.taught=true;
-  G.marks=[]; G.sources=[]; G.grace=4; G.spawnT=0; G.t=0; G.lastBeat=0;
-  spawnMark(false,{still:true}); spawnMark(false,{still:true});
-  toast("BEGIN","flank the marks \u00b7 keep the chain","#27e0d0");
-}
-
-// ---------- loop ----------
-let last=performance.now();
-function frame(now){let dt=(now-last)/1000;last=now;if(dt>0.05)dt=0.05;
-  if(G.state==="play")update(dt); render(dt); tickToast(dt); requestAnimationFrame(frame);}
-
-function update(dt){
-  G.t+=dt;
-  if(G.grace>0)G.grace-=dt;
-  G.charge=Math.min(1,G.charge+dt*C.CFG.CHARGE_REGEN);
-  if(G.chainTimer>0){G.chainTimer-=dt;if(G.chainTimer<=0)G.chain=1;}
-  G.sources=G.sources.filter(s=>C.sourceAlive(s,G.t));
-  if(!G.sources.some(s=>s.over))G.over=false;
-
-  // audible heartbeat: tick on each pulse boundary if any pulsar is live
-  if(G.sources.length){
-    const beat=Math.floor(G.t/C.CFG.PULSE_PERIOD);
-    if(beat!==G.lastBeat){G.lastBeat=beat;tick();}
-  }
-
-  if(G.tut){ G.tut.update(dt); }
-  else{
-    // surge rhythm drives spawn density: calm spawns slowly, surge spawns in bursts
-    const ss=C.surgeState(G.t);
-    if(ss.phase!==G.surgePhase){
-      G.surgePhase=ss.phase;
-      $("surge").classList.toggle("show", ss.phase==="surge" && G.grace<=0 && G.level>=2);
-      if(ss.phase==="surge"&&G.grace<=0&&G.level>=2){blip(150,0.4,"sawtooth",0.08);bass(60,0.5);}
-    }
-    G.spawnT+=dt;
-    const surgeMul=(ss.phase==="surge"&&G.grace<=0)?0.5:1; // faster spawns in a surge
-    const ease=G.grace>0?1.7:1;
-    if(G.spawnT>=C.spawnEvery(G.level)*ease*surgeMul){G.spawnT=0;spawnMark();
-      if(G.grace<=0&&Math.random()<Math.min(0.15+G.level*0.03,0.55)&&G.level>=2)spawnMark();
-      if(ss.phase==="surge"&&G.grace<=0&&G.level>=3&&Math.random()<0.5)spawnMark();}
-    if(G.level>=10&&Math.random()<dt*0.15){spawnMark();spawnMark();}
-  }
-
-  let decohered=[];
-  for(const m of G.marks){
-    m.x+=m.vx*dt;m.y+=m.vy*dt;
-    if(m.x<70||m.x>W-70)m.vx*=-1; if(m.y<110||m.y>H-70)m.vy*=-1;
-    m.x=Math.max(70,Math.min(W-70,m.x)); m.y=Math.max(110,Math.min(H-70,m.y));
-    if(!G.tut)m.life-=dt; m.r=22+Math.sin(G.t*4+m.phase)*3;
-    if(m.life<=0)decohered.push(m);
-  }
-  if(decohered.length&&!G.tut){
-    for(const m of decohered){
-      const dmg=C.CFG.HEALTH_HIT*(G.over?1.7:1)*(m.isSuper?1.5:1);
-      G.health-=dmg; G.chain=1; G.shake=Math.min(G.shake+10,18); G.stat.missed++;
-      flashScreen("#ff4d8d"); burst(m.x,m.y,[255,77,141],16,120); blip(110,0.25,"sawtooth",0.12);}
-    G.marks=G.marks.filter(m=>m.life>0);
-  }
-  if(!G.tut){G.health=Math.min(1,G.health+dt*C.CFG.HEALTH_REGEN); if(G.health<=0){gameOver();return;}}
-
-  resolveFoci(dt);
-  if(!G.tut&&G.score>=C.levelThreshold(G.level))levelUp();
-
-  for(const p of G.parts){p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=0.95;p.vy*=0.95;}
-  G.parts=G.parts.filter(p=>p.age<p.life);
-  for(const f of G.foci)f.age+=dt; G.foci=G.foci.filter(f=>f.age<0.45);
-  const sspd=C.speedForLevel(G.level)*2.4;
-  for(const s of G.shock)s.r=(G.t-s.born)*sspd; G.shock=G.shock.filter(s=>s.r<s.max);
-  for(const t of texts){t.age+=dt;t.y-=26*dt;} while(texts.length&&texts[0].age>texts[0].life)texts.shift();
-  for(const a of G.absorbers)a.age+=dt;
-  if(G.shake>0)G.shake=Math.max(0,G.shake-dt*30);
-
-  // HUD
-  G.disp+=(G.score-G.disp)*Math.min(1,dt*8);
-  $("scorev").textContent=Math.round(G.disp).toLocaleString();
-  $("combov").textContent="\u00d7"+G.chain;
-  $("combo").classList.toggle("hot",G.chain>=8&&G.chain<12);
-  $("combo").classList.toggle("flow",G.chain>=12);
-  $("overlab").textContent=shiftHeld?"OVERCHARGE \u00d72":(G.chain>=12?"FLOW":"");
-  $("chainfill").style.width=(G.chainTimer>0?(G.chainTimer/C.CFG.CHAIN_WINDOW*100):0)+"%";
-  $("charge").style.width=(G.charge*100)+"%";
-  $("chargeOver").style.opacity=shiftHeld?"1":"0";
-  $("chargeOver").style.width=(G.charge*100)+"%";
-  const lf=$("lifefill"); lf.style.width=(Math.max(0,G.health)*100)+"%";
-  lf.classList.toggle("warn",G.health<0.5&&G.health>=0.25);
-  lf.classList.toggle("crit",G.health<0.25);
-}
-
-// ---------- render ----------
-function render(dt){
-  let ox=0,oy=0; if(G.shake>0){ox=(Math.random()-0.5)*G.shake;oy=(Math.random()-0.5)*G.shake;}
-  fctx.setTransform(1,0,0,1,0,0); fctx.clearRect(0,0,fieldCv.width,fieldCv.height);
-  if(G.state!=="intro")drawField();
-  ctx.setTransform(DPR,0,0,DPR,ox*DPR,oy*DPR);
-  ctx.clearRect(-30,-30,W+60,H+60); ctx.fillStyle="#05060f"; ctx.fillRect(-30,-30,W+60,H+60);
-  const flow=Math.max(0,Math.min(1,(G.chain-8)/16));
-  if(flow>0 && G.state==="play"){
-    const g=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.hypot(W,H)/1.5);
-    const pulse=0.5+Math.sin(G.t*5)*0.5;
-    g.addColorStop(0,`rgba(93,255,160,${0.045*flow*(0.6+pulse*0.4)})`);
-    g.addColorStop(0.5,`rgba(154,107,255,${0.035*flow})`);
-    g.addColorStop(1,"rgba(0,0,0,0)");
-    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  }
-  drawGrid();
-  if(G.state==="play"||G.state==="over"){
-    drawAbsorbers(); drawMarks(); drawPrediction(); drawSources(); drawCrossings(); drawShock(); drawFoci();
-    drawParts(); drawTexts(); drawGhost(); drawHealth(); drawCursor();
-  }
-}
-function drawGrid(){ctx.strokeStyle="rgba(120,140,220,.05)";ctx.lineWidth=1;const g=64;ctx.beginPath();
-  for(let x=0;x<=W;x+=g){ctx.moveTo(x,0);ctx.lineTo(x,H);}for(let y=0;y<=H;y+=g){ctx.moveTo(0,y);ctx.lineTo(W,y);}ctx.stroke();}
-
-// FIELD: draw every live pulsar front (all concentric pulses) as additive glowing rings.
-// Cost is O(sources x pulses), independent of resolution — FPS stays flat.
-function drawField(){
-  if(!G.sources.length)return;
-  const spd=C.speedForLevel(G.level);
-  fctx.save();
-  fctx.scale(DPR,DPR);
-  fctx.globalCompositeOperation="lighter";
-  for(const s of G.sources){
-    const decay=C.sourceDecay(s,G.t);
-    if(decay<=0.05)continue;
-    const t=C.TONES[s.tone];
-    fctx.strokeStyle=`rgb(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]})`;
-    const radii=C.frontRadii(s,G.t,spd);
-    for(let i=0;i<radii.length;i++){
-      const r=radii[i]; if(r<2)continue;
-      // newest (largest) pulse brightest; older pulses dimmer
-      const ringFade=Math.max(0,1-r/(C.CFG.WAVELENGTH*5));
-      fctx.globalAlpha=decay*0.5*ringFade*(i===0?1:0.55);
-      fctx.lineWidth=i===0?2.2:1.2;
-      fctx.beginPath();fctx.arc(s.x,s.y,r,0,7);fctx.stroke();
+      else if(e.type==="miss" || e.type==="emptypress"){ addKick(3); tone(120,0.12,"sawtooth",0.12); }
+      else if(e.type==="decohere"){
+        if(pos) burst(pos.x,pos.y,"#ff4fd8",10,4,false);
+        addKick(6); thud();
+      }
+      else if(e.type==="levelup"){
+        showToast("LEVEL "+e.level, "#9b7bff");
+        if(AC){ tone(659.25,0.18,"triangle",0.3); tone(987.77,0.22,"sine",0.18); }
+      }
+      else if(e.type==="death"){ /* handled by loop */ }
     }
   }
-  fctx.restore();
-}
 
-// LIVE CROSSINGS: the bright moving sparks where two fronts intersect — the thing you steer.
-function drawCrossings(){
-  if(G.sources.length<1)return;
-  const cx=C.liveCrossings(G.t,G.sources,G.level);
-  ctx.save(); ctx.globalCompositeOperation="lighter";
-  for(const p of cx){
-    const pulse=0.6+Math.sin(G.t*10)*0.4;
-    const r=6+pulse*4;
-    const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r*2);
-    g.addColorStop(0,"rgba(255,255,255,0.95)");
-    g.addColorStop(0.4,"rgba(160,230,255,0.7)");
-    g.addColorStop(1,"rgba(0,0,0,0)");
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r*2,0,7); ctx.fill();
-  }
-  ctx.restore();
-}
+  /* ---------- drawing ---------- */
+  function draw(){
+    // trail-fade background (cheap motion blur, dark) — kept subtle so the
+    // ring reads as ONE crisp line, not a stacked band (anti-cacophony)
+    ctx.globalCompositeOperation="source-over";
+    ctx.fillStyle="rgba(4,6,12,0.55)";
+    ctx.fillRect(0,0,W,H);
 
-// PREDICTION: hovering shows whether dropping here will make a focus and on which target.
-function drawPrediction(){
-  if(!hasMouse||G.state!=="play"||!G.marks.length)return;
-  const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);
-  if(G.charge<cost)return;
-  const pred=C.predictDrop(mx,my,G.t,G.sources,G.marks,G.level);
-  if(!pred)return;
-  const m=pred.mark, q=pred.quality;
-  const col= q>0.66? [93,255,160] : q>0.33? [255,193,77] : [125,134,184];
-  ctx.save();
-  ctx.globalAlpha=0.25+q*0.45;
-  ctx.strokeStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
-  ctx.lineWidth=1.4; ctx.setLineDash([5,7]); ctx.lineDashOffset=-G.t*30;
-  ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(m.x,m.y);ctx.stroke();ctx.setLineDash([]);
-  ctx.globalAlpha=0.5+q*0.5;
-  ctx.lineWidth=2+q*2;
-  ctx.beginPath();ctx.arc(m.x,m.y,m.r+15,0,7);ctx.stroke();
-  if(q>0.5){ctx.globalAlpha=0.9;ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
-    ctx.font="600 11px ui-monospace,monospace";ctx.textAlign="center";
-    ctx.fillText(q>0.66?"WILL HIT":"CLOSE",mx,my-22);}
-  ctx.restore();
-}
-
-function drawSources(){
-  for(const s of G.sources){const age=G.t-s.born;const life=C.sourceDecay(s,G.t);const t=C.TONES[s.tone];
-    ctx.save();ctx.globalAlpha=life;
-    // pulse flare: flash brightly at each beat boundary
-    const phase=(age%C.CFG.PULSE_PERIOD)/C.CFG.PULSE_PERIOD;
-    const flare=Math.max(0,1-phase*3);
-    const pulse=2+Math.sin(G.t*8)*1.5+flare*5;
-    ctx.fillStyle=t.c;ctx.shadowColor=t.c;ctx.shadowBlur=(s.over?26:18)+flare*16;
-    ctx.beginPath();ctx.arc(s.x,s.y,4+pulse,0,7);ctx.fill();ctx.shadowBlur=0;ctx.restore();}
-}
-function drawMarks(){
-  for(const m of G.marks){const t=C.TONES[m.tone];const lf=m.maxlife>500?1:m.life/m.maxlife;
-    const res=Math.max(0,Math.min(1,m.res||0));
+    var kx = kick? (Math.random()*2-1)*kick : 0;
+    var ky = kick? (Math.random()*2-1)*kick : 0;
+    kick *= 0.82; if(kick<0.4) kick=0;
     ctx.save();
-    if(m.nearGlow>0){ctx.globalAlpha=m.nearGlow*0.5;ctx.fillStyle=t.c;
-      ctx.beginPath();ctx.arc(m.x,m.y,m.r+18,0,7);ctx.fill();ctx.globalAlpha=1;}
-    // lifetime arc (faint, outer)
-    ctx.strokeStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},.30)`;ctx.lineWidth=m.isSuper?3.4:2.4;
-    ctx.beginPath();ctx.arc(m.x,m.y,m.r+12,-Math.PI/2,-Math.PI/2+Math.PI*2*lf);ctx.stroke();
-    // RESONANCE arc — the kill-charge filling up. Bright, thick, the main feedback.
-    if(res>0){
-      ctx.strokeStyle=t.c;ctx.lineWidth=3.4;ctx.shadowColor=t.c;ctx.shadowBlur=10+res*14;
-      ctx.beginPath();ctx.arc(m.x,m.y,m.r+12,-Math.PI/2,-Math.PI/2+Math.PI*2*res);ctx.stroke();ctx.shadowBlur=0;
+    ctx.translate(kx,ky);
+
+    var win = C.windowPx(G);
+    var rtone = C.ringTone(G);
+    var rhex = TONE_HEX[rtone];
+
+    // faint guide circle where nodes live
+    ctx.globalCompositeOperation="lighter";
+    ctx.beginPath(); ctx.arc(CX,CY,G.nodeR,0,7);
+    ctx.strokeStyle="rgba(90,116,148,0.10)"; ctx.lineWidth=1; ctx.stroke();
+
+    // center core (pulses on beat)
+    var pulse = 1 - G.beatPhase;
+    var coreR = 6 + pulse*5;
+    ctx.beginPath(); ctx.arc(CX,CY,coreR,0,7);
+    ctx.fillStyle=rhex; ctx.globalAlpha=0.5+pulse*0.4;
+    ctx.shadowBlur=24; ctx.shadowColor=rhex; ctx.fill();
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
+
+    // ---- the ONE ring ----
+    var rr = Math.max(0, G.ring);
+    // ring intensifies as it approaches the node-orbit (where hits happen)
+    var nearOrbit = 1 - Math.min(1, Math.abs(rr - G.nodeR) / (G.edgeR*0.5));
+    ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
+    ctx.strokeStyle=rhex; ctx.globalAlpha=0.55 + nearOrbit*0.4;
+    ctx.lineWidth=2 + nearOrbit*1.5; ctx.shadowBlur=10 + nearOrbit*16; ctx.shadowColor=rhex;
+    ctx.stroke();
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
+
+    // shock rings (perfect)
+    for(var s=shocks.length-1;s>=0;s--){
+      var sh=shocks[s];
+      sh.r+=8; sh.a-=0.04;
+      if(sh.a<=0){ shocks.splice(s,1); continue; }
+      ctx.beginPath(); ctx.arc(CX,CY,sh.r,0,7);
+      ctx.strokeStyle=sh.hex; ctx.globalAlpha=sh.a; ctx.lineWidth=2; ctx.stroke();
+      ctx.globalAlpha=1;
     }
-    const urgent=lf<0.3; ctx.globalAlpha=urgent?(0.5+Math.sin(G.t*16)*0.5):1;
-    ctx.fillStyle=`rgba(${t.rgb[0]},${t.rgb[1]},${t.rgb[2]},${0.10+res*0.22})`;
-    ctx.beginPath();ctx.arc(m.x,m.y,m.r,0,7);ctx.fill();
-    ctx.strokeStyle=t.c;ctx.lineWidth=m.isSuper?2.4:1.5;ctx.shadowColor=t.c;ctx.shadowBlur=urgent?16:(6+res*12);
-    ctx.beginPath();ctx.arc(m.x,m.y,m.r,0,7);ctx.stroke();
-    if(m.isSuper){ctx.shadowBlur=14;ctx.setLineDash([6,7]);ctx.lineDashOffset=-G.t*30;
-      ctx.beginPath();ctx.arc(m.x,m.y,m.r-7,0,7);ctx.stroke();ctx.setLineDash([]);}
-    ctx.shadowBlur=0;ctx.fillStyle=t.c;ctx.beginPath();ctx.arc(m.x,m.y,2.5+res*2,0,7);ctx.fill();
-    ctx.restore();}
-}
-function drawAbsorbers(){
-  for(const a of G.absorbers){ctx.save();
-    const g=ctx.createRadialGradient(a.x,a.y,2,a.x,a.y,a.r);
-    g.addColorStop(0,"rgba(8,10,22,0.96)");g.addColorStop(0.7,"rgba(20,16,40,0.6)");g.addColorStop(1,"rgba(20,16,40,0)");
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,7);ctx.fill();
-    ctx.strokeStyle="rgba(154,107,255,.35)";ctx.lineWidth=1;ctx.setLineDash([4,6]);ctx.lineDashOffset=G.t*-10;
-    ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,7);ctx.stroke();ctx.setLineDash([]);ctx.restore();}
-}
-function drawShock(){for(const s of G.shock){const f=1-s.r/s.max;ctx.save();ctx.globalAlpha=f*0.5;
-  ctx.strokeStyle=`rgb(${s.col[0]},${s.col[1]},${s.col[2]})`;ctx.lineWidth=2*f+0.5;
-  ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.stroke();ctx.restore();}}
-function drawFoci(){for(const f of G.foci){const k=1-f.age/0.45;ctx.save();ctx.globalCompositeOperation="lighter";
-  const r=12+(1-k)*(f.big?70:40);const g=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,r);
-  g.addColorStop(0,`rgba(255,255,255,${k})`);g.addColorStop(0.4,`rgba(${f.col[0]},${f.col[1]},${f.col[2]},${k*0.85})`);
-  g.addColorStop(1,"rgba(0,0,0,0)");ctx.fillStyle=g;ctx.beginPath();ctx.arc(f.x,f.y,r,0,7);ctx.fill();ctx.restore();}}
-function drawParts(){ctx.save();ctx.globalCompositeOperation="lighter";
-  for(const p of G.parts){const k=1-p.age/p.life;ctx.globalAlpha=k;
-    ctx.fillStyle=`rgb(${p.col[0]},${p.col[1]},${p.col[2]})`;ctx.beginPath();ctx.arc(p.x,p.y,p.r*k+0.4,0,7);ctx.fill();}ctx.restore();}
-function drawTexts(){for(const t of texts){const k=1-t.age/t.life;ctx.save();ctx.globalAlpha=k;
-  ctx.fillStyle=t.col;ctx.font=`600 ${t.size}px ui-monospace,monospace`;ctx.textAlign="center";
-  ctx.fillText(t.s,t.x,t.y);ctx.restore();}}
-function drawGhost(){
-  if(!G.tut)return; const gm=G.tut.ghostMarker(); if(!gm)return;
-  const p=0.5+Math.sin(gm.t*4)*0.5;
-  ctx.save();
-  ctx.globalAlpha=0.5+p*0.5; ctx.strokeStyle="#27e0d0"; ctx.lineWidth=2;
-  ctx.shadowColor="#27e0d0"; ctx.shadowBlur=18;
-  ctx.beginPath();ctx.arc(gm.x,gm.y,18+p*8,0,7);ctx.stroke();
-  ctx.beginPath();ctx.arc(gm.x,gm.y,5,0,7);ctx.fillStyle="#27e0d0";ctx.fill();
-  ctx.shadowBlur=0;ctx.globalAlpha=0.9;
-  ctx.fillStyle="#27e0d0";ctx.font="600 11px ui-monospace,monospace";ctx.textAlign="center";
-  ctx.fillText("DROP HERE",gm.x,gm.y-30);
-  ctx.restore();
-}
-function drawCursor(){if(G.state!=="play")return;const cost=C.CFG.SOURCE_COST*(shiftHeld?1.4:1);const ok=G.charge>=cost;
-  ctx.save();ctx.globalAlpha=ok?0.9:0.3;ctx.strokeStyle=shiftHeld?"#ffc14d":(ok?"#27e0d0":"#7d86b8");ctx.lineWidth=1.3;
-  const rr=10+Math.sin(G.t*6)*2;ctx.beginPath();ctx.arc(mx,my,rr,0,7);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(mx-16,my);ctx.lineTo(mx-6,my);ctx.moveTo(mx+6,my);ctx.lineTo(mx+16,my);
-  ctx.moveTo(mx,my-16);ctx.lineTo(mx,my-6);ctx.moveTo(mx,my+6);ctx.lineTo(mx,my+16);ctx.stroke();ctx.restore();}
-function drawHealth(){const h=G.health;if(h<0.995){ctx.save();ctx.globalAlpha=(1-h)*0.6;
-  ctx.strokeStyle="#ff4d8d";ctx.lineWidth=6*(1-h)+1;ctx.shadowColor="#ff4d8d";ctx.shadowBlur=20*(1-h);
-  ctx.strokeRect(3,3,W-6,H-6);ctx.restore();}}
 
-// ---------- flow ----------
-function resetState(){
-  Object.assign(G,{state:"play",level:1,score:0,disp:0,chain:1,peakChain:1,chainTimer:0,
-    charge:1,over:false,t:0,sources:[],marks:[],absorbers:[],foci:[],shock:[],parts:[],
-    spawnT:0,health:1,shake:0,lastSound:0,grace:0,lastBeat:0,surgePhase:"calm",
-    stat:{focuses:0,crits:0,supers:0,pures:0,bestHit:0,missed:0,runStart:performance.now()},
-    tut:null});
-  $("lvlv").textContent="1";texts.length=0;
-  $("intro").classList.remove("show");$("over").classList.remove("show");
-  $("overTitle").classList.remove("win");$("surge").classList.remove("show");
-  const cf=$("confetti"); if(cf)cf.innerHTML="";
-  coach("",""); dimHud(false);
-}
-function startTaught(){
-  audio();if(AC&&AC.state==="suspended")AC.resume();
-  resetState();
-  G.tut=makeTutorial(); dimHud(true);
-}
-function startStraight(){
-  audio();if(AC&&AC.state==="suspended")AC.resume();
-  // skipping the tutorial still counts as taught — fixes the "tutorial reappears" bug
-  localStorage.setItem("phase_taught","1"); META.taught=true;
-  resetState();
-  G.grace=4; spawnMark(false,{still:true}); spawnMark(false,{still:true});
-  toast("BEGIN","flank the marks \u00b7 keep the chain","#27e0d0");
-}
-function countUp(el,to,dur){
-  const start=performance.now(), from=0;
-  function step(now){const k=Math.min(1,(now-start)/dur);
-    const e=1-Math.pow(1-k,3);
-    el.textContent=Math.round(from+(to-from)*e).toLocaleString();
-    if(k<1)requestAnimationFrame(step);}
-  requestAnimationFrame(step);
-}
-function fireConfetti(){
-  const wrap=$("confetti"); wrap.innerHTML="";
-  const cols=["#27e0d0","#ff4d8d","#ffc14d","#9a6bff","#5dffa0"];
-  for(let i=0;i<70;i++){const s=document.createElement("i");
-    s.style.left=(Math.random()*100)+"vw";
-    s.style.background=cols[i%cols.length];
-    s.style.setProperty("--d",(1.8+Math.random()*1.8)+"s");
-    s.style.setProperty("--delay",(Math.random()*0.5)+"s");
-    s.style.width=(5+Math.random()*5)+"px"; s.style.height=(10+Math.random()*8)+"px";
-    wrap.appendChild(s);}
-  setTimeout(()=>{wrap.innerHTML="";},4200);
-}
-function computeMedals(){
-  const st=G.stat, out=[];
-  if(G.peakChain>=25)out.push({c:"gold",ic:"\u26d3",t:"Unbroken \u00d7"+G.peakChain});
-  else if(G.peakChain>=12)out.push({c:"cyan",ic:"\u26d3",t:"Chain \u00d7"+G.peakChain});
-  if(st.supers>0)out.push({c:"gold",ic:"\u2726",t:st.supers+" Superposition"+(st.supers>1?"s":"")});
-  if(st.crits>=5)out.push({c:"violet",ic:"\u2738",t:st.crits+" Crits"});
-  if(st.pures>=10)out.push({c:"cyan",ic:"\u25ce",t:st.pures+" Pure"});
-  if(st.bestHit>=2000)out.push({c:"gold",ic:"\u2605",t:"Big hit "+st.bestHit.toLocaleString()});
-  if(st.focuses>=40)out.push({c:"violet",ic:"\u2756",t:st.focuses+" Foci"});
-  if(st.missed===0&&st.focuses>=8)out.push({c:"gold",ic:"\u2666",t:"Flawless"});
-  if(G.level>=10)out.push({c:"cyan",ic:"\u25b2",t:"Strata "+G.level});
-  return out.slice(0,6);
-}
-function verdictLine(){
-  const st=G.stat;
-  if(G.score>=META.best&&META.runs>1)return "A <b>new best</b>. The field bent to you.";
-  if(G.level>=12)return "You held phase deep into the field.";
-  if(G.peakChain>=20)return "That chain was a <b>thing of beauty</b>.";
-  if(st.supers>0)return "You cracked a <b>superposition</b>. Few do.";
-  if(st.missed===0&&st.focuses>0)return "Not a single mark slipped. <b>Clean</b>.";
-  if(G.score>3000)return "The rhythm was starting to click.";
-  return "Flank a mark with two pulsars \u2014 the spark charges it.";
-}
+    // ---- nodes ----
+    for(var i=0;i<G.nodes.length;i++){
+      var nd=G.nodes[i];
+      var x=CX+Math.cos(nd.ang)*G.nodeR, y=CY+Math.sin(nd.ang)*G.nodeR;
+      var hex=TONE_HEX[nd.tone];
+      var err=C.nodeError(G, nd);
+      var inWin = err<=win;
+      var prox = inWin ? 1-(err/win) : 0;            // 0..1 how "ripe"
+      var crit = err<=win*C.CFG.CRIT_FRAC;
+      var lifeFrac = nd.life/nd.maxLife;
+      var pure = nd.tone === rtone;
+      ctx.globalCompositeOperation="lighter";
 
-function gameOver(){
-  G.state="over";
-  META.runs++; localStorage.setItem("phase_runs",META.runs);
-  const beat=G.score>META.best&&G.score>0;
-  if(beat){META.best=G.score;localStorage.setItem("phase_best",META.best);}
-  const before=unlockedAt(META.peakLevel);
-  if(G.level>META.peakLevel){META.peakLevel=G.level;localStorage.setItem("phase_peaklvl",META.peakLevel);}
-  const after=unlockedAt(META.peakLevel); const fresh=after.filter(k=>!before.includes(k));
+      // decoherence countdown: a thin ring that empties as the node ages.
+      // Stays quiet so idle nodes don't add noise; reddens when about to die.
+      if(lifeFrac < 0.45){
+        ctx.beginPath();
+        ctx.arc(x,y,C.CFG.NODE_R+8,-Math.PI/2,-Math.PI/2+lifeFrac/0.45*Math.PI*2);
+        ctx.strokeStyle="#ff4fd8"; ctx.globalAlpha=0.55*(1-lifeFrac/0.45);
+        ctx.lineWidth=2; ctx.stroke(); ctx.globalAlpha=1;
+      }
 
-  G.shock.push({x:W/2,y:H/2,r:0,max:Math.hypot(W,H),born:G.t,col:beat?[255,193,77]:[255,77,141]});
-  G.shake=Math.min(G.shake+14,22);
+      // CONVERGING APERTURE: a ring that races in from outside and snaps onto the
+      // dot exactly at the perfect instant. This is the "NOW" signal.
+      if(prox>0){
+        var apR = C.CFG.NODE_R + (1-prox)*30;
+        ctx.beginPath(); ctx.arc(x,y,apR, 0,7);
+        ctx.strokeStyle = crit ? "#ffffff" : hex;
+        ctx.globalAlpha = 0.3 + 0.7*prox;
+        ctx.lineWidth = 1.5 + prox*2.5;
+        ctx.shadowBlur = prox*26; ctx.shadowColor = crit?"#ffffff":hex;
+        ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+        // PURE hint: a second faint concentric ring when tone matches the sweep
+        if(pure && prox>0.3){
+          ctx.beginPath(); ctx.arc(x,y,apR+6,0,7);
+          ctx.strokeStyle=hex; ctx.globalAlpha=0.35*prox; ctx.lineWidth=1; ctx.stroke();
+          ctx.globalAlpha=1;
+        }
+      }
 
-  $("overTitle").textContent=beat?"RESONANCE":"DECOHERED";
-  $("overTitle").classList.toggle("win",beat);
-  $("overTag").textContent=beat?"a new standing wave":"the field lost phase";
-  $("verdict").innerHTML=verdictLine();
-  countUp($("finalScore"),G.score,900);
-  $("bestScore").textContent=META.best.toLocaleString();
-  $("finalLvl").textContent=G.level; $("finalChain").textContent="\u00d7"+G.peakChain;
-  $("rankLine").textContent=rankFor(META.best)+(beat?" \u00b7 NEW BEST":"");
+      // core dot — dim while waiting, blooms as the ring arrives
+      var dotR = C.CFG.NODE_R*(0.5 + prox*0.55);
+      ctx.beginPath(); ctx.arc(x,y,dotR,0,7);
+      ctx.fillStyle = hex;
+      ctx.globalAlpha = 0.4 + prox*0.6;
+      ctx.shadowBlur = 6 + prox*24; ctx.shadowColor = hex; ctx.fill();
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
 
-  const medals=computeMedals(); const mEl=$("medals"); mEl.innerHTML="";
-  for(const md of medals){const d=document.createElement("div");d.className="medal "+md.c;
-    d.innerHTML=`<span class="ic">${md.ic}</span>${md.t}`;mEl.appendChild(d);}
+      // crit flash: dot core goes white-hot at the perfect instant
+      if(crit){
+        ctx.beginPath(); ctx.arc(x,y,dotR*0.55,0,7);
+        ctx.fillStyle="#ffffff"; ctx.globalAlpha=0.95;
+        ctx.shadowBlur=18; ctx.shadowColor="#fff"; ctx.fill();
+        ctx.shadowBlur=0; ctx.globalAlpha=1;
+      }
+    }
 
-  const list=$("unlockList"); list.innerHTML="";
-  for(const u of UNLOCKS){const on=META.peakLevel>=u.lvl;const isNew=fresh.includes(u.key);
-    const d=document.createElement("div");d.className="chip"+(on?(isNew?" new":" on"):"");
-    d.textContent=on?u.label:("? L"+u.lvl);list.appendChild(d);}
-  $("overTip").textContent=fresh.length?"new mechanic unlocked \u2014 go again to use it"
-    :(medals.length>=3?"strong run. one more?":"flank your marks to climb the strata.");
+    ctx.globalCompositeOperation="lighter";
+    drawParts();
+    ctx.restore();
+    ctx.globalCompositeOperation="source-over";
+  }
 
-  setTimeout(()=>{ $("over").classList.add("show"); }, 260);
-  if(beat) setTimeout(fireConfetti, 420);
-  blip(140,0.6,"sine",0.12);setTimeout(()=>blip(105,0.7,"sine",0.10),120);bass(55,0.8);
-  if(beat)setTimeout(()=>{chord(523,5,"triangle");bass(98,0.6);},420);
-}
+  /* ---------- tutorial (drawn overlay, 3 quick beats) ---------- */
+  function drawTutorial(){
+    if(!tut.on) return;
+    // dim hint text near center top
+    ctx.save();
+    ctx.globalCompositeOperation="source-over";
+    ctx.textAlign="center"; ctx.fillStyle="rgba(159,194,230,0.92)";
+    ctx.font="600 18px Segoe UI, sans-serif";
+    var msg = tut.step===0 ? "Кольцо расходится из центра…"
+            : tut.step===1 ? "Точка загорается, когда кольцо близко"
+            : "ЖМИ Space или по точке в этот миг →";
+    ctx.fillText(msg, CX, CY - edgeR*0.55);
+    ctx.font="13px Segoe UI, sans-serif"; ctx.fillStyle="rgba(90,116,148,0.8)";
+    ctx.fillText("(нажми что угодно, чтобы продолжить)", CX, CY - edgeR*0.55 + 26);
+    ctx.restore();
+  }
 
-$("startBtn").addEventListener("click",startTaught);
-$("skipBtn").addEventListener("click",startStraight);
-$("againBtn").addEventListener("click",()=> META.taught?startStraight():startTaught());
-if(META.taught){$("startBtn").textContent="Enter the field";}
-requestAnimationFrame(frame);
+  /* ---------- main loop ---------- */
+  function loop(now){
+    if(!running) return;
+    var dt = Math.max(0, Math.min(0.05, (now-last)/1000)); last=now;
+
+    if(tut.on){
+      // tutorial: ring runs but no death, no spawn pressure; advance on input
+      C.step(G, dt);
+      // keep health pinned, keep exactly 1 node alive for demo
+      G.health = C.CFG.H_MAX;
+      if(G.nodes.length===0) { G.spawnTimer=0; }
+      consumeEvents();
+      draw();
+      drawTutorial();
+      // update minimal HUD
+      hpFill.style.transform="scaleX(1)";
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    C.step(G, dt);
+    consumeEvents();
+    draw();
+
+    // HUD
+    scoreShown += (G.score-scoreShown)*0.25;
+    if(Math.abs(G.score-scoreShown)<1) scoreShown=G.score;
+    scoreEl.textContent = Math.round(scoreShown);
+    lvlEl.textContent = "LEVEL "+G.level;
+    hpFill.style.transform = "scaleX("+G.health+")";
+    if(G.health<0.3){ hpFill.style.background="var(--magenta)"; }
+    else hpFill.style.background="linear-gradient(90deg,var(--magenta),var(--cyan))";
+
+    if(G.chain>=2){
+      chainWrap.style.opacity="1";
+      chainNum.textContent="×"+(1+ (G.chain*C.CFG.CHAIN_MULT)).toFixed(2).replace(/0+$/,'').replace(/\.$/,'');
+      chainNum.textContent="×"+G.chain;
+      var frac = G.chainTimer / C.chainHold(G);
+      chainBar.style.transform="scaleX("+Math.max(0.04,frac)+")";
+    } else {
+      chainWrap.style.opacity="0";
+    }
+    if(G.score>50) howto.style.opacity="0";
+
+    if(!G.alive){ endGame(); return; }
+    requestAnimationFrame(loop);
+  }
+
+  /* ---------- input ---------- */
+  function handlePress(clientX, clientY){
+    if(!running || !G) return;
+    if(tut.on){
+      tut.step++;
+      if(tut.step>=3){
+        tut.on=false; taught=true; localStorage.setItem("phase6_taught","1");
+        howto.style.opacity="1";
+        G.spawnTimer=0.3;
+      } else {
+        // ensure a demo node exists for next step
+        if(G.nodes.length===0){ G.spawnTimer=0; }
+      }
+      return;
+    }
+    if(clientX==null){ // Space
+      C.pressSpace(G);
+    } else {
+      var rect = cv.getBoundingClientRect();
+      var dx = (clientX-rect.left) - CX, dy=(clientY-rect.top) - CY;
+      var ang = Math.atan2(dy,dx);
+      var r = Math.hypot(dx,dy);
+      // tap tolerance widens for nodes; if click is way off the node ring, treat as space-like
+      C.pressAt(G, ang, 0.55);
+    }
+    consumeEvents();
+  }
+
+  window.addEventListener("keydown", function(e){
+    if(e.code==="Space" || e.code==="Enter"){
+      e.preventDefault();
+      if(!running && !document.getElementById("startScreen").classList.contains("hidden")){
+        startGame(true); return;
+      }
+      if(!running && !document.getElementById("endScreen").classList.contains("hidden")){
+        startGame(false); return;
+      }
+      handlePress(null,null);
+    }
+  });
+  cv.addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    handlePress(e.clientX, e.clientY);
+  });
+
+  document.getElementById("startBtn").addEventListener("click", function(){ startGame(true); });
+  document.getElementById("skipBtn").addEventListener("click", function(){
+    taught=true; localStorage.setItem("phase6_taught","1"); startGame(false);
+  });
+  document.getElementById("againBtn").addEventListener("click", function(){ startGame(false); });
+
+  // boot
+  resize();
+  // ambient idle render on start screen
+  (function idle(){
+    if(running) return;
+    ctx.fillStyle="rgba(4,6,12,0.2)"; ctx.fillRect(0,0,W,H);
+    var t=performance.now()/1000;
+    ctx.globalCompositeOperation="lighter";
+    var rr=(t%1.4)/1.4*edgeR;
+    ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
+    ctx.strokeStyle="rgba(57,230,255,0.18)"; ctx.lineWidth=2; ctx.stroke();
+    ctx.globalCompositeOperation="source-over";
+    requestAnimationFrame(idle);
+  })();
+
+  // expose for tests
+  window.__PHASE__ = {get G(){return G;}, start:startGame, core:C};
 })();
 </script>
 </body>

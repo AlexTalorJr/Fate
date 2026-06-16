@@ -1,89 +1,65 @@
 # PHASE
 
-An interference field. You drop **pulsars**; each one emits an expanding ring on a
-steady beat for as long as it lives. Where two rings cross, a bright **spark**
-appears — and that crossing *moves* as the rings grow. Park a crossing on a
-**target** and it soaks **resonance** until it breaks.
+Браузерная аркада про фазу и резонанс. Один файл, без сборки и зависимостей —
+открываешь `index.html` и играешь.
 
-No bullet-hell, no enemy horde. You think in expanding wavefronts and moving
-intersections, and you keep a rhythm going — something the genre hasn't done.
+## Суть
 
-## Why v5 exists (what v4 got wrong)
+Из центра ритмично расходится **одно** кольцо. Вокруг загораются точки (узлы).
+**Жми, когда кольцо касается точки** — в этот миг происходит резонанс: pop, очки, цепочка.
 
-v4 didn't hook, and the diagnosis was structural, not cosmetic:
+- Попал точно в момент касания → **PERFECT** (×3 очки), белая вспышка.
+- Тон точки совпал с тоном кольца → **PURE** (×1.5).
+- Цепляешь подряд → множитель растёт, но таймер цепочки горит — порвёшь, потеряешь.
+- Не успел поймать узел → он «декогерирует» и бьёт по здоровью.
+- Промах по биту или тык Space в пустоту → лёгкий штраф (анти-маш). Клик по пустому месту — бесплатно.
 
-- **It was a planner, not a reflex.** You placed two one-shot sources and waited
-  ~1.5s for their rings to cross. That gap between action and reward is dead air.
-  Worse, two equal rings' crossing point flies through a target in a few frames, so
-  a "hit" was a single instant you couldn't feel building.
-- **No felt pressure.** Health drained abstractly and the loop was too slow to build
-  a big chain — so the main hook (fear of losing a fat multiplier) never fired.
-- **A bug:** after game over the tutorial popped up again, because "Skip intro"
-  never recorded that you'd been taught.
+Темп растёт по уровням: кольцо ускоряется, окно попадания сужается, добавляются новые тоны.
+Давление идёт через **скорость**, а не через гору объектов — на экране всегда **не больше 3 точек**.
 
-## What v5 changes
+## Управление
 
-- **Sources are pulsars.** Each live source re-emits a ring every ~0.92s, so the
-  field is a continuous, rhythmic lattice of moving crossings. You don't place-and-
-  wait — you keep a beat and steer the live crossings. The action is constant.
-- **Targets soak resonance.** A target fills from the *proximity* of the nearest
-  qualifying crossing and breaks when full, so a kill is a visible sweep you watch
-  build over ~1.5s — immediate feedback, not a one-frame coin-flip. A lone source,
-  or only wrong-tone sources, can never fill it.
-- **Surge rhythm.** The session breathes: calm windows, then surges that spawn marks
-  in bursts behind a "▲ surge incoming" banner. Tension rises and falls.
-- **A heartbeat you can hear.** A soft tick lands on every pulse boundary, so you
-  feel the tempo you're playing to.
-- **Bug fixed.** Skipping the intro now persists the "taught" flag — the tutorial
-  never reappears after a run.
+- **Space / Enter** — поймать ближайший к идеалу резонирующий узел.
+- **Клик / тап** по точке — поймать именно её.
+- На старте: «Играть» (с обучением) или «Пропустить обучение».
 
-Everything that worked in v4 is kept: variable-reward crits (×3), loss-aversion
-chain timer, near-miss glow + chime, Shift-to-overcharge staking (×2.2), 3-source
-Superposition jackpots, ranks/medals/best, level + strata progression, and the
-RESONANCE / DECOHERED finales with confetti and a victory chord.
+## Как залить и играть (GitHub Pages)
 
-## How it plays
+У меня нет доступа к твоему GitHub, поэтому заливаешь сам:
 
-A focus exists wherever two live rings cross; it persists and sweeps as the rings
-expand. Flank a target with two pulsars so a crossing sits on it, hold the beat, and
-watch its resonance arc fill. No frame-perfect timing — achievable and readable.
+```bash
+# положи index.html в репозиторий Fate, ветка Fate
+git add index.html
+git commit -m "PHASE v6"
+git push
+```
 
-- **Live crossing sparks** — bright moving points, the core feedback
-- **Resonance arc** on each target shows the kill building
-- **Hover prediction** simulates forward and shows what you'll hit ("WILL HIT")
-- **Hand-held tutorial** walks you through flanking a target with two pulsars
-- **Soft-start** grace eases the opening; **idling kills you** (decoherence damage)
+Затем включи **GitHub Pages** (Settings → Pages → ветка `Fate`) и играй на
+`https://alextalorjr.github.io/Fate`.
 
-## Controls
+Для игры нужен только `index.html`. Остальные файлы — для разработки.
 
-- **Click / tap** — drop a pulsar
-- **Space** — re-phase every pulsar into one synchronized burst
-- **Hold Shift** — overcharge (×2.2 score, higher miss cost)
-- Two rings crossing on a mark → resonance → break it to score
-- Same-tone pulsars → PURE bonus
-- Rare Superposition marks need 3 rings, pay big
-- A mark going dark = decoherence. Lose all coherence → DECOHERED.
+## Файлы
 
-## Play
+| Файл | Назначение |
+|------|-----------|
+| `index.html` | Вся игра в одном файле (логика + рендер + звук + ввод). **Это и есть продукт.** |
+| `core.js` | Чистая логика без DOM, извлечённая из `index.html` — единственный источник правды для механики. Тестируется отдельно. |
+| `regress.js` | 50 юнит-тестов механики: `node regress.js`. Проверяют проходимость, кап ≤3 узлов, очки/цепочки, смерть от бездействия, анти-маш. |
+| `README.md` | Этот файл. |
 
-Open `index.html` in any modern browser. No build, no dependencies, no assets.
+Логика в `index.html` (блок `PhaseCore`) и в `core.js` совпадают. Если правишь механику —
+правь в `index.html`, затем переизвлеки `core.js` и прогони `node regress.js` (должно быть 50/50).
 
-## Tech / testing
+## Принцип дизайна
 
-Single self-contained file (Canvas 2D + Web Audio). Logic lives in pure functions
-in `core.js`, mirrored byte-for-byte inside `index.html` (regenerated by the
-deterministic `assemble.py`, so parity is checkable any time).
+Главный урок прошлых версий: **читаемость важнее количества**. Один яркий «созревший»
+узел + кольцо, всё остальное тусклое. Контраст несёт смысл: ярко = жми сейчас, тускло = жди.
+В любой момент очевидно, что делать.
 
-- `core.js` — pure logic: pulsar fronts, circle-intersection crossings, the
-  resonance integrator, scoring, progression, surge rhythm, forward-simulating
-  prediction
-- `regress.js` — 65-assertion suite incl. the key tests that two flanking pulsars
-  resonate a mark to full within ~2s while a single/wrong-tone source never does
-  (`node regress.js`)
-- `sim.js` — headless DOM/canvas/audio mock that plays the tutorial + 5 min of
-  stress and asserts the tutorial-reappear bug stays fixed (`node sim.js`)
+## Технадёжность
 
-Verified: 65/65 unit assertions, byte-for-byte core parity with the embedded copy,
-clean headless sim (0 errors over 5 min), and a real headless-Chromium pass — zero
-console errors, finale renders, resonance clears targets in live play, the tutorial
-does not reappear after a restart, and a steady 59–60fps that holds across restarts.
+- 60 FPS (в браузере с GPU), ≤55–57 в софт-рендере.
+- 0 ошибок консоли.
+- Рекорд / число забегов хранятся в `localStorage` (`phase6_best`, `phase6_runs`, `phase6_taught`).
+- `prefers-reduced-motion` уважается.

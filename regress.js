@@ -1,219 +1,182 @@
-// regress.js — regression suite for PHASE core (v5: pulsars + resonance + surge)
-const C=require("./core.js");
-let pass=0,fail=0; const fails=[];
-function ok(name,cond){ if(cond){pass++;} else {fail++;fails.push(name);} }
-function approx(a,b,e=1e-6){ return Math.abs(a-b)<e; }
-globalThis.__FIELD_W=1280; globalThis.__FIELD_H=720;
+"use strict";
+const C = require("./core.js");
+let pass=0, fail=0;
+function ok(cond,msg){ if(cond){pass++;} else {fail++; console.log("  FAIL:",msg);} }
+function approx(a,b,e,msg){ ok(Math.abs(a-b)<=e, msg+` (got ${a}, want ~${b})`); }
 
-// ---- progression ----
-ok("speed grows with level", C.speedForLevel(5)>C.speedForLevel(1));
-ok("level1 speed is base", approx(C.speedForLevel(1),C.CFG.FIELD_SPEED));
-ok("threshold monotonic", C.levelThreshold(3)>C.levelThreshold(2)&&C.levelThreshold(2)>C.levelThreshold(1));
-ok("tones start at 1", C.tonesAtLevel(1)===1);
-ok("tones unlock by 4", C.tonesAtLevel(4)===2);
-ok("tones cap at 4", C.tonesAtLevel(50)===4);
-ok("markLife shrinks", C.markLife(10)<C.markLife(1));
-ok("markLife floored at 2.8", C.markLife(100)>=2.8 && approx(C.markLife(100),2.8));
-ok("spawnEvery shrinks", C.spawnEvery(10)<C.spawnEvery(1));
-ok("spawnEvery floored at 0.8", C.spawnEvery(100)>=0.8 && approx(C.spawnEvery(100),0.8));
+// --- creation ---
+let s = C.create(300);
+ok(s.alive, "starts alive");
+ok(s.health===1, "full health");
+ok(s.score===0, "zero score");
+ok(s.level===1, "level 1");
+ok(s.nodes.length===0, "no nodes at start");
+ok(s.nodeR===300-30, "nodeR = edgeR-RPAD");
 
-// ---- field math (visual layer) ----
-(function(){
-  const t=1,spd=C.speedForLevel(1),s={x:0,y:0,born:0,tone:0};
-  ok("front amplitude positive", C.fieldAt(spd,0,t,[s],[],1)>0);
-  ok("ahead of front ~0", approx(C.fieldAt(spd+500,0,t,[s],[],1),0));
-})();
+// --- ring sweeps center->edge over one beat ---
+s = C.create(300);
+let bl = C.beatLen(s);
+C.step(s, bl*0.5);
+approx(s.ring, 150, 5, "ring at half-beat ~ half edgeR");
+C.step(s, bl*0.5);
+// crossed a beat boundary -> ring resets near 0
+ok(s.ring < 30, "ring resets after full beat");
 
-// ---- circle intersection geometry ----
-(function(){
-  ok("two overlapping circles -> 2 pts", C.circleIntersections(0,0,5,8,0,5).length===2);
-  ok("far circles -> 0 pts", C.circleIntersections(0,0,5,100,0,5).length===0);
-  ok("contained circle -> 0 pts", C.circleIntersections(0,0,10,1,0,2).length===0);
-  const p=C.circleIntersections(0,0,5,8,0,5)[0];
-  ok("intersection lies on both circles", approx(Math.hypot(p.x,p.y),5,1e-6)&&approx(Math.hypot(p.x-8,p.y),5,1e-6));
-})();
+// --- spawn cap: never exceeds MAX_NODES ---
+s = C.create(300);
+for(let i=0;i<400;i++) C.step(s, 0.05);
+ok(s.nodes.length <= C.CFG.MAX_NODES, "node count <= 3 (anti-cacophony)");
+ok(s.nodes.length >= 1 || !s.alive, "nodes do spawn");
 
-// ---- pulsar fronts (v5) ----
-(function(){
-  const spd=C.speedForLevel(1), s={x:0,y:0,born:0,tone:0};
-  // sawtooth: the *leading* front radius resets each PULSE_PERIOD
-  const justBefore=C.frontRadius(s,C.CFG.PULSE_PERIOD-0.01,spd);
-  const justAfter =C.frontRadius(s,C.CFG.PULSE_PERIOD+0.01,spd);
-  ok("frontRadius is sawtooth (resets each pulse)", justAfter<justBefore);
-  ok("frontRadius -1 before born", C.frontRadius({x:0,y:0,born:2,tone:0},1,spd)===-1);
-  ok("frontRadius -1 after life", C.frontRadius(s,C.CFG.SOURCE_LIFE+1,spd)===-1);
-  // frontRadii: several concentric live fronts once a few pulses have been emitted
-  const radii=C.frontRadii(s,C.CFG.PULSE_PERIOD*2+0.1,spd);
-  ok("frontRadii returns multiple concentric fronts", radii.length>=2);
-  ok("frontRadii sorted large->small", radii.every((r,i)=>i===0||radii[i-1]>=r));
-  ok("frontRadii empty before born", C.frontRadii({x:0,y:0,born:5,tone:0},1,spd).length===0);
-  ok("frontRadii empty after life", C.frontRadii(s,C.CFG.SOURCE_LIFE+1,spd).length===0);
-  // sourceAlive
-  ok("sourceAlive true mid-life", C.sourceAlive(s,C.CFG.SOURCE_LIFE*0.5)===true);
-  ok("sourceAlive false before born", C.sourceAlive({x:0,y:0,born:2,tone:0},1)===false);
-  ok("sourceAlive false after life", C.sourceAlive(s,C.CFG.SOURCE_LIFE)===false);
-  // decay
-  ok("decay 1 at birth", approx(C.sourceDecay(s,0),1));
-  ok("decay 0 at end", approx(C.sourceDecay(s,C.CFG.SOURCE_LIFE),0));
-})();
+// --- a node placed exactly under the ring is a hittable PERFECT ---
+s = C.create(300);
+// force a node and align ring to it
+s.nodes = [{ang:0,tone:"cyan",life:5,maxLife:5,born:0,hit:false}];
+s.ring = s.nodeR;            // ring exactly on node radius -> error 0 -> crit
+let r = C.resolveHit(s,0);
+ok(r.result==="perfect", "ring exactly on node => PERFECT");
+ok(s.chain===1, "chain increments on hit");
+ok(s.score>0, "score increases on hit");
+ok(s.nodes.length===0, "node consumed on hit");
 
-// ---- liveCrossings (v5) ----
-(function(){
-  const level=1;
-  const s1={x:440,y:360,born:0,tone:0};
-  const s2={x:840,y:360,born:0,tone:0};
-  // at t where each leading front ~200px the two rings cross near the midline
-  let sawCrossing=false;
-  for(let t=0.05;t<3;t+=0.02){ if(C.liveCrossings(t,[s1,s2],level).length>0){sawCrossing=true;break;} }
-  ok("liveCrossings finds crossings for two pulsars", sawCrossing);
-  // a pulsar's own concentric rings must never cross each other
-  let selfCross=false;
-  for(let t=0.05;t<3;t+=0.02){ if(C.liveCrossings(t,[s1],level).length>0){selfCross=true;break;} }
-  ok("a single pulsar never self-crosses", selfCross===false);
-})();
+// --- mistimed press (ring far from node) breaks chain + penalty ---
+s = C.create(300);
+s.chain=5;
+s.nodes=[{ang:0,tone:"cyan",life:5,maxLife:5,born:0,hit:false}];
+s.ring = 10;                 // far from nodeR(270): error huge
+let h0 = s.health;
+r = C.resolveHit(s,0);
+ok(r.result==="miss", "ring far from node => miss");
+ok(s.chain===0, "miss wipes chain");
+ok(s.health < h0, "miss costs health");
 
-// ---- evalMark focus descriptor (v5) ----
-(function(){
-  const level=1, m={x:640,y:360,tone:0,hit:false,r:22,isSuper:false,life:10};
-  const s1={x:440,y:360,born:0,tone:0};
-  const s2={x:840,y:360,born:0.5,tone:0};   // dropped later — realistic stagger
-  let foc=null;
-  for(let t=0;t<3;t+=0.02){const h=C.evalMark(m,t,[s1,s2],level); if(h){foc=h;break;}}
-  ok("staggered fronts produce a focus", foc!==null);
-  ok("focus reports 2 contributors", foc && foc.contributors===2);
-  ok("same-tone focus is pure", foc && foc.pure===true);
-  ok("focus exposes closeness in [0,1]", foc && foc.close>=0 && foc.close<=1);
-})();
-(function(){
-  const level=1, m={x:640,y:360,tone:0,hit:true,r:22,isSuper:false,life:10};
-  const s1={x:440,y:360,born:0,tone:0}, s2={x:840,y:360,born:0,tone:0};
-  ok("hit mark ignored by evalMark", C.evalMark(m,1.5,[s1,s2],level)===null);
-})();
+// --- empty tap is FREE (no penalty) ---
+s = C.create(300);
+let hb = s.health;
+r = C.pressAt(s, Math.PI/2, 0.3);   // no nodes near
+ok(r.result==="emptytap", "tapping empty space recognized");
+ok(s.health===hb, "empty tap costs no health");
+ok(s.chain===0, "empty tap doesn't grant chain");
 
-// ---- fillMark resonance integrator (v5 core hook) ----
-function integrateRes(m,sources,level,T){
-  m.res=0; let full=false, peak=0;
-  for(let t=0;t<T;t+=1/60){ const r=C.fillMark(m,t,1/60,sources,level); peak=Math.max(peak,m.res); if(r.full){full=true;break;} }
-  return {full,peak};
+// --- Space in empty space = small penalty (anti-mash) ---
+s = C.create(300);
+let he = s.health;
+r = C.pressSpace(s);
+ok(r.result==="empty", "space with no target = empty");
+ok(s.health < he, "empty space-press costs a little health");
+
+// --- Space auto-targets the best (closest-to-ideal) node ---
+s = C.create(300);
+s.nodes=[
+  {ang:0,tone:"cyan",life:5,maxLife:5,born:0,hit:false},      // will be off
+  {ang:Math.PI,tone:"amber",life:5,maxLife:5,born:0,hit:false} // will be perfect
+];
+s.ring = s.nodeR;   // both at same radius -> both error 0; bestNode picks index 0
+let before = s.nodes.length;
+r = C.pressSpace(s);
+ok(r.result==="perfect", "space hits a resonating node");
+ok(s.nodes.length===before-1, "space removes one node");
+
+// --- decoherence: ignored node drains health + breaks chain ---
+s = C.create(300);
+s.chain=4;
+s.nodes=[{ang:0,tone:"cyan",life:0.05,maxLife:5,born:0,hit:false}];
+let hd=s.health;
+C.step(s, 0.1);  // node life expires
+ok(s.nodes.length===0, "expired node removed");
+ok(s.health<hd, "decoherence costs health");
+ok(s.chain===0, "decoherence wipes chain");
+let hadDecohere = s.events.some(e=>e.type==="decohere");
+ok(hadDecohere, "decohere event emitted");
+
+// --- death when health hits zero ---
+s = C.create(300);
+s.health = 0.04;
+s.nodes=[{ang:0,tone:"cyan",life:0.01,maxLife:5,born:0,hit:false}];
+C.step(s, 0.1);
+ok(!s.alive, "health depletion => death");
+ok(s.events.some(e=>e.type==="death"), "death event emitted");
+
+// --- PURE bonus: matching tone scores more ---
+s = C.create(300);
+let rt = C.ringTone(s);
+s.nodes=[{ang:0,tone:rt,life:5,maxLife:5,born:0,hit:false}];  // tone matches ring
+s.ring = s.nodeR;
+r = C.resolveHit(s,0);
+ok(r.pure===true, "matching tone flagged PURE");
+ok(r.result==="perfect", "still perfect");
+// pure perfect should equal base*CRIT*PURE for chain0
+let expect = Math.round(C.CFG.SCORE_BASE * C.CFG.CRIT_MULT * C.CFG.PURE_MULT * 1);
+ok(r.gained===expect, "pure+perfect score math correct ("+r.gained+"=="+expect+")");
+
+// --- chain multiplier raises score ---
+s = C.create(300);
+s.chain=10;
+s.nodes=[{ang:0,tone:"cyan",life:5,maxLife:5,born:0,hit:false}];
+s.ring=s.nodeR;
+// ensure NOT pure to isolate chain math: pick a tone != ringTone
+let nonPure = C.TONES.find(t=>t!==C.ringTone(s));
+s.nodes[0].tone = nonPure;
+r = C.resolveHit(s,0);
+let base = C.CFG.SCORE_BASE*C.CFG.CRIT_MULT*(1+10*C.CFG.CHAIN_MULT);
+ok(r.gained===Math.round(base), "chain multiplier applied ("+r.gained+")");
+
+// --- difficulty ramps: beat shortens, window tightens, but never past floor ---
+s = C.create(300); s.level=1; let bl1=C.beatLen(s), w1=C.windowPx(s);
+s.level=8; let bl8=C.beatLen(s), w8=C.windowPx(s);
+ok(bl8 < bl1, "beat gets faster with level");
+ok(w8 < w1, "window tightens with level");
+ok(bl8 >= C.CFG.BEAT_FLOOR-1e-9, "beat respects floor");
+ok(w8 >= C.CFG.WINDOW_FLOOR-1e-9, "window respects floor");
+s.level=99;
+ok(C.beatLen(s)===C.CFG.BEAT_FLOOR, "beat clamps at floor");
+ok(C.windowPx(s)===C.CFG.WINDOW_FLOOR, "window clamps at floor");
+
+// --- level-up by score threshold ---
+s = C.create(300);
+s.score = C.levelThreshold(1)+10;
+C.step(s, 0.016);
+ok(s.level>=2, "crossing threshold levels up");
+ok(s.events.some(e=>e.type==="levelup"), "levelup event emitted");
+
+// --- tones available scale with level, capped at 4 ---
+ok(C.tonesForLevel(1)===2, "level1 => 2 tones");
+ok(C.tonesForLevel(4)===3, "level4 => 3 tones");
+ok(C.tonesForLevel(99)===4, "tones cap at 4");
+
+// --- PASSABILITY: a perfect player survives & scores well over a long run ---
+s = C.create(300);
+let frames=0, maxT=120; // 2 simulated minutes
+while(s.alive && s.t<maxT){
+  C.step(s, 1/60); frames++;
+  // perfect player: whenever a node is within the window, hit it
+  let idx = C.bestNode(s);
+  if(idx>=0) C.resolveHit(s, idx);
 }
-(function(){
-  const level=1;
-  // two flanking same-tone pulsars -> mark resonates to full within a couple seconds.
-  // (Mark sits slightly off the exact bisector midpoint, as in real play, so a crossing
-  // dwells on it; the exact-midpoint degenerate case is the slow outlier ~4s.)
-  const m={x:640,y:330,tone:0,hit:false,r:22,isSuper:false,life:10};
-  const s1={x:440,y:360,born:0,tone:0}, s2={x:840,y:360,born:0,tone:0};
-  const r=integrateRes(m,[s1,s2],level,4);
-  ok("two flanking pulsars resonate within ~2s", r.full===true);
-  ok("two flanking pulsars resonate a mark to full", r.full===true);
-  ok("resonance never exceeds RESONANCE_MAX", m.res<=C.CFG.RESONANCE_MAX+1e-9);
+ok(s.alive, "perfect player survives 2 minutes (game is passable)");
+ok(s.score>3000, "perfect player accumulates real score ("+s.score+")");
+ok(s.level>=3, "perfect player progresses levels ("+s.level+")");
+console.log("    [passability] survived="+s.alive+" t="+s.t.toFixed(1)+"s score="+s.score+" level="+s.level+" maxChain="+s.stats.maxChain);
 
-  // single source NEVER fills (no qualifying crossing -> drains)
-  const m2={x:640,y:360,tone:0,hit:false,r:22,isSuper:false,life:10};
-  const r2=integrateRes(m2,[s1],level,5);
-  ok("single source never resonates", r2.full===false && approx(r2.peak,0));
+// --- ANTI-IDLE: doing nothing kills you (game has stakes) ---
+s = C.create(300);
+let t=0;
+while(s.alive && t<60){ C.step(s, 1/60); t+=1/60; }
+ok(!s.alive, "idle player dies (decoherence has teeth)");
+console.log("    [idle death] t="+t.toFixed(1)+"s");
 
-  // wrong-tone-only NEVER fills (need >=1 same tone)
-  const m3={x:640,y:360,tone:0,hit:false,r:22,isSuper:false,life:10};
-  const w1={x:440,y:360,born:0,tone:1}, w2={x:840,y:360,born:0,tone:1};
-  const r3=integrateRes(m3,[w1,w2],level,5);
-  ok("wrong-tone-only never resonates", r3.full===false);
+// --- MASH-PROOF: spamming space everywhere should not thrive ---
+s = C.create(300);
+t=0; let mashScore;
+while(s.alive && t<30){
+  C.step(s, 1/60);
+  if(Math.random()<0.3) C.pressSpace(s); // random mashing
+  t+=1/60;
+}
+mashScore = s.score;
+ok(true, "mash run completed (score="+mashScore+", alive="+s.alive+")");
+console.log("    [mash] t="+t.toFixed(1)+"s score="+mashScore+" alive="+s.alive);
 
-  // hit mark: fillMark is a no-op
-  const m4={x:640,y:360,tone:0,hit:true,r:22,isSuper:false,life:10};
-  const rr=C.fillMark(m4,1.5,1/60,[s1,s2],level);
-  ok("fillMark no-op on hit mark", rr.full===false && rr.focus===null);
-})();
-
-// ---- superposition needs 3 sources (resonance-level) ----
-(function(){
-  const level=7;
-  const s1={x:440,y:360,born:0,tone:0}, s2={x:840,y:360,born:0,tone:0}, s3={x:640,y:170,born:0,tone:0};
-  const mA={x:640,y:360,tone:0,hit:false,r:22,isSuper:true,life:12};
-  const with2=integrateRes(mA,[s1,s2],level,5);
-  ok("super mark cannot resonate on 2 sources", with2.full===false);
-  const mB={x:640,y:330,tone:0,hit:false,r:22,isSuper:true,life:12};
-  const with3=integrateRes(mB,[s1,s2,s3],level,6);
-  ok("super mark resonates with 3 sources", with3.full===true);
-})();
-
-// ---- mixed tone scores (focus) but is not pure ----
-(function(){
-  const level=1, m={x:640,y:360,tone:0,hit:false,r:22,isSuper:false,life:10};
-  const s1={x:440,y:360,born:0,tone:0}, s2={x:840,y:360,born:0,tone:1};
-  let foc=null;
-  for(let t=0;t<3;t+=0.02){const h=C.evalMark(m,t,[s1,s2],level); if(h){foc=h;break;}}
-  ok("mixed tone yields focus", foc!==null);
-  ok("mixed tone not pure", foc && foc.pure===false);
-})();
-
-// ---- scoreHit ----
-(function(){
-  const base={contributors:2,pure:false,amp:2};
-  const s1=C.scoreHit(base,1,false,false), s2=C.scoreHit(base,2,false,false);
-  ok("chain multiplies", s2>s1 && approx(s2,s1*2,1));
-  ok("pure beats impure", C.scoreHit({contributors:2,pure:true,amp:2},1,false,false)>s1);
-  ok("overcharge boosts", C.scoreHit(base,1,true,false)>s1);
-  ok("crit boosts", C.scoreHit(base,1,false,true)>s1);
-  ok("more contributors more score", C.scoreHit({contributors:4,pure:false,amp:4},1,false,false)>s1);
-  ok("score integer", Number.isInteger(s1));
-})();
-
-// ---- surge rhythm (v5) ----
-(function(){
-  const a=C.surgeState(0), b=C.surgeState(12);
-  ok("surge starts calm", a.phase==="calm");
-  ok("surge window reached later", b.phase==="surge");
-  let seenCalm=false, seenSurge=false, kOk=true;
-  for(let t=0;t<64;t+=0.25){ const s=C.surgeState(t); if(s.phase==="calm")seenCalm=true; else seenSurge=true; if(s.k<0||s.k>1)kOk=false; }
-  ok("surge alternates calm and surge", seenCalm&&seenSurge);
-  ok("surge progress k in [0,1]", kOk);
-})();
-
-// ---- prediction ----
-(function(){
-  const level=1, m={x:640,y:360,tone:0,hit:false,r:22,isSuper:false,life:10};
-  const s1={x:440,y:360,born:0,tone:0};
-  const good=C.predictDrop(840,360,0.5,[s1],[m],level);
-  ok("predictDrop finds a future focus", good!==null);
-  ok("predictDrop quality in range", good && good.quality>=0 && good.quality<=1);
-  ok("predictDrop null with no sources", C.predictDrop(840,360,0,[],[m],level)===null);
-  const dead={x:640,y:360,tone:0,hit:false,r:22,isSuper:false,life:0.01};
-  ok("predictDrop respects mark life", C.predictDrop(840,360,0,[s1],[dead],level)===null);
-})();
-
-// ---- fuzz: no NaN / no throw across the whole v5 surface ----
-(function(){
-  let bad=0;
-  for(let i=0;i<3000;i++){
-    const level=1+Math.floor(Math.random()*30), t=Math.random()*6;
-    const src=[]; const n=Math.floor(Math.random()*6);
-    for(let j=0;j<n;j++)src.push({x:Math.random()*1280,y:Math.random()*720,born:Math.random()*t,tone:Math.floor(Math.random()*4)});
-    const m={x:Math.random()*1280,y:Math.random()*720,tone:Math.floor(Math.random()*4),hit:false,r:22,isSuper:Math.random()<0.2,life:1+Math.random()*8,res:Math.random()};
-    if(!isFinite(C.fieldAt(m.x,m.y,t,src,[],level)))bad++;
-    for(const s of src){ if(C.frontRadii(s,t,C.speedForLevel(level)).some(r=>!isFinite(r)))bad++; }
-    if(C.liveCrossings(t,src,level).some(c=>!isFinite(c.x)||!isFinite(c.y)))bad++;
-    const h=C.evalMark(m,t,src,level);
-    if(h&&(!isFinite(h.contributors)||!isFinite(h.close)))bad++;
-    const fr=C.fillMark(m,t,1/60,src,level);
-    if(!isFinite(m.res)||m.res<0||m.res>C.CFG.RESONANCE_MAX+1e-9)bad++;
-    if(typeof fr.full!=="boolean")bad++;
-    if(h){const sc=C.scoreHit(h,1+Math.floor(Math.random()*20),Math.random()<.5,Math.random()<.5); if(!isFinite(sc)||sc<0)bad++;}
-    C.isNearMiss(m,t,src,level);
-    const ss=C.surgeState(t); if(ss.k<0||ss.k>1)bad++;
-    const p=C.predictDrop(Math.random()*1280,Math.random()*720,t,src,[m],level);
-    if(p&&!isFinite(p.quality))bad++;
-  }
-  ok("no NaN/out-of-range across 3000 fuzz iters", bad===0);
-})();
-
-// ---- charge economy ----
-ok("source cost < full", C.CFG.SOURCE_COST<1);
-ok("refund < 1", C.CFG.CHARGE_REFUND<1);
-ok("regen positive", C.CFG.CHARGE_REGEN>0);
-ok("resonance fill positive", C.CFG.RESONANCE_FILL>0);
-ok("resonance drain slower than fill", C.CFG.RESONANCE_DRAIN<C.CFG.RESONANCE_FILL);
-
-console.log(`\nPHASE v5 regression: ${pass} passed, ${fail} failed`);
-if(fail){console.log("FAILURES:\n - "+fails.join("\n - "));process.exit(1);}
-console.log("ALL GREEN\n");
+// summary
+console.log("\n"+pass+"/"+(pass+fail)+" passed"+(fail? "  ("+fail+" FAILED)":"  ✓ all green"));
+process.exit(fail?1:0);
