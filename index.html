@@ -49,26 +49,6 @@
     transition:opacity .4s;}
   #howto b{color:#9fc2e6;font-weight:500;}
 
-  /* fixed rhythm button — mobile/touch only, shown only while playing.
-     Wide + short bar pinned to the bottom edge so it doesn't cover the ring.
-     Pulses with the beat (--beat 0..1 set each frame from the renderer). */
-  #pulseBtn{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));
-    transform:translateX(-50%);
-    width:min(420px,82vw);height:74px;border-radius:18px;
-    display:none;align-items:center;justify-content:center;
-    font-size:14px;letter-spacing:.22em;font-weight:500;
-    color:#bfe9ff;text-transform:uppercase;
-    background:rgba(20,40,64,calc(.30 + .42*var(--beat,0)));
-    border:1.5px solid rgba(70,150,210,calc(.30 + .55*var(--beat,0)));
-    box-shadow:0 0 calc(8px + 34px*var(--beat,0)) rgba(57,230,255,calc(.10 + .40*var(--beat,0)));
-    -webkit-tap-highlight-color:transparent;touch-action:none;user-select:none;
-    z-index:4;transition:background .04s linear;}
-  #pulseBtn:active{background:rgba(57,230,255,.42);border-color:rgba(120,240,255,.9);
-    box-shadow:0 0 44px rgba(57,230,255,.6);}
-  body.touch.playing #pulseBtn{display:flex;}
-  /* on touch, lift the hint above the button so they don't overlap */
-  body.touch #howto{bottom:108px;}
-
   /* center toast (rare events only) */
   #toast{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%) scale(.7);
     font-size:clamp(40px,11vw,84px);font-weight:200;letter-spacing:.12em;
@@ -176,7 +156,6 @@
     <div id="bestWrap" class="corner">BEST <b id="best">0</b></div>
     <div id="howto"><b>Жми</b>, когда кольцо касается точки</div>
   </div>
-  <div id="pulseBtn">фаза</div>
   <div id="toast"></div>
   <div id="rankPop"></div>
 
@@ -219,7 +198,7 @@
 
 <script>
 /* ============================================================
-   PHASE — v10 (wip): carrot curve to L200 + discrete level transitions (phase bands). Depth + mobile input retained.
+   PHASE — v10 (wip): carrot curve to L200 + discrete transitions + mobile = tap-anywhere (auto-target). Depth retained.
    Core idea unchanged (one ring, ≤3 nodes, "press when the ring touches the dot").
    v8 adds the decision layer the live playtest said was missing:
      · GREEDY edge-locks (risk/reward)   · charged nodes (priority choice)
@@ -784,9 +763,13 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   var DPR = Math.min(2, window.devicePixelRatio||1);
   var W=0,H=0, CX=0,CY=0, edgeR=0;
 
-  // touch device? -> show the fixed rhythm button and lift the hint above it.
+  // touch device? -> the whole screen is one tap button (auto-targets the best node).
   var IS_TOUCH = ("ontouchstart" in window) || (navigator.maxTouchPoints||0) > 0;
-  if(IS_TOUCH) document.body.classList.add("touch");
+  if(IS_TOUCH){
+    document.body.classList.add("touch");
+    var hw=document.getElementById("howto");
+    if(hw) hw.innerHTML = "<b>Тапни</b> в любом месте, когда кольцо касается точки";
+  }
 
   var TONE_HEX = {cyan:"#39e6ff", magenta:"#ff4fd8", amber:"#ffc24b", violet:"#9b7bff"};
   var TONE_FREQ = {cyan:523.25, magenta:659.25, amber:783.99, violet:987.77}; // C5 E5 G5 B5
@@ -918,8 +901,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       rivalEl=document.getElementById("rival"),
       rivalName=document.getElementById("rivalName"),
       rivalScore=document.getElementById("rivalScore"),
-      rankPop=document.getElementById("rankPop"),
-      pulseBtn=document.getElementById("pulseBtn");
+      rankPop=document.getElementById("rankPop");
 
   var scoreShown=0;
 
@@ -1277,7 +1259,6 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     // ring intensifies sharply as it approaches the node-orbit (where hits happen)
     var nearOrbit = 1 - Math.min(1, Math.abs(rr - G.nodeR) / (G.edgeR*0.42));
     nearOrbit = nearOrbit*nearOrbit;  // ease-in so it stays calm until close, then POPS
-    if(IS_TOUCH) pulseBtn.style.setProperty("--beat", nearOrbit.toFixed(3));
     ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
     ctx.strokeStyle=rhex; ctx.globalAlpha=0.5 + nearOrbit*0.5;
     ctx.lineWidth=2 + nearOrbit*2.5; ctx.shadowBlur=10 + nearOrbit*22; ctx.shadowColor=rhex;
@@ -1578,13 +1559,18 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       }
       return;
     }
-    if(clientX==null){ // Space or fixed pulse-button -> auto-target best-timed node
+    if(clientX==null){ // Space / keyboard -> auto-target best-timed node
+      C.pressSpace(G);
+    } else if(IS_TOUCH){
+      // MOBILE: the whole screen is one button. A tap ANYWHERE locks the best-timed
+      // node (same as Space) — no aiming at small moving circles one-handed.
       C.pressSpace(G);
     } else {
+      // DESKTOP (mouse): aimed tap — prefer the node under the cursor, else best-timed.
+      // This is where the "which node do I take" choice lives; mouse can aim, a thumb can't.
       var rect = cv.getBoundingClientRect();
       var dx = (clientX-rect.left) - CX, dy=(clientY-rect.top) - CY;
       var ang = Math.atan2(dy,dx);
-      // forgiving: prefer the node under the finger, else lock the best-timed one
       C.pressNear(G, ang, 0.55);
     }
     consumeEvents();
@@ -1607,12 +1593,6 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     handlePress(e.clientX, e.clientY);
   });
 
-  // Fixed rhythm button (touch): behaves exactly like Space — auto-targets the
-  // best-timed node. pointerdown (not click) so it fires on touch immediately.
-  document.getElementById("pulseBtn").addEventListener("pointerdown", function(e){
-    e.preventDefault(); e.stopPropagation();
-    handlePress(null, null);
-  });
 
   document.getElementById("startBtn").addEventListener("click", function(){ startGame(true); });
   document.getElementById("skipBtn").addEventListener("click", function(){
