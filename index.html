@@ -49,6 +49,26 @@
     transition:opacity .4s;}
   #howto b{color:#9fc2e6;font-weight:500;}
 
+  /* fixed rhythm button — mobile/touch only, shown only while playing.
+     Wide + short bar pinned to the bottom edge so it doesn't cover the ring.
+     Pulses with the beat (--beat 0..1 set each frame from the renderer). */
+  #pulseBtn{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));
+    transform:translateX(-50%);
+    width:min(420px,82vw);height:74px;border-radius:18px;
+    display:none;align-items:center;justify-content:center;
+    font-size:14px;letter-spacing:.22em;font-weight:500;
+    color:#bfe9ff;text-transform:uppercase;
+    background:rgba(20,40,64,calc(.30 + .42*var(--beat,0)));
+    border:1.5px solid rgba(70,150,210,calc(.30 + .55*var(--beat,0)));
+    box-shadow:0 0 calc(8px + 34px*var(--beat,0)) rgba(57,230,255,calc(.10 + .40*var(--beat,0)));
+    -webkit-tap-highlight-color:transparent;touch-action:none;user-select:none;
+    z-index:4;transition:background .04s linear;}
+  #pulseBtn:active{background:rgba(57,230,255,.42);border-color:rgba(120,240,255,.9);
+    box-shadow:0 0 44px rgba(57,230,255,.6);}
+  body.touch.playing #pulseBtn{display:flex;}
+  /* on touch, lift the hint above the button so they don't overlap */
+  body.touch #howto{bottom:108px;}
+
   /* center toast (rare events only) */
   #toast{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%) scale(.7);
     font-size:clamp(40px,11vw,84px);font-weight:200;letter-spacing:.12em;
@@ -156,6 +176,7 @@
     <div id="bestWrap" class="corner">BEST <b id="best">0</b></div>
     <div id="howto"><b>Жми</b>, когда кольцо касается точки</div>
   </div>
+  <div id="pulseBtn">фаза</div>
   <div id="toast"></div>
   <div id="rankPop"></div>
 
@@ -198,7 +219,7 @@
 
 <script>
 /* ============================================================
-   PHASE — v8 radial phase-lock + DEPTH layer.
+   PHASE — v10 (wip): carrot curve to L200 + discrete level transitions (phase bands). Depth + mobile input retained.
    Core idea unchanged (one ring, ≤3 nodes, "press when the ring touches the dot").
    v8 adds the decision layer the live playtest said was missing:
      · GREEDY edge-locks (risk/reward)   · charged nodes (priority choice)
@@ -247,7 +268,24 @@ var PhaseCore = (function(){
 
   function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
   function lvlFloor(base,floor,step,level){ return Math.max(floor, base - step*(level-1)); }
-  function levelThreshold(level){ return level*9000 + level*level*3600; } // v8: rebalanced for richer scoring
+  // v10 "carrot" curve. perLevelCost(L) = score earned WITHIN level L to advance.
+  // Piecewise so the first ~10 levels fly by (seconds each -> instant sense of growth),
+  // the middle stretches gently, and the last ~50 levels get heavy (minutes each) so the
+  // hidden word becomes legible right as each level costs more -> always almost there.
+  // L200 ~ 9h for a strong player, ~16h average: "weeks of returns", not a weekend, not never.
+  function perLevelCost(L){
+    if(L<=10) return Math.round(500*L*1.15);
+    if(L<=60) return Math.round(1400*Math.pow(L-9,1.30)+6000);
+    return Math.round(4200*Math.pow(L-59,1.42) + (1400*Math.pow(51,1.30)+6000));
+  }
+  var _thrCache = [0];
+  function levelThreshold(level){
+    while(_thrCache.length <= level){
+      var n = _thrCache.length;
+      _thrCache[n] = _thrCache[n-1] + perLevelCost(n);
+    }
+    return _thrCache[level];
+  }
   function tonesForLevel(level){ return Math.min(4, 2 + Math.floor((level-1)/3)); }
 
   // Create a fresh game state. edgeR = playfield radius in px.
@@ -554,6 +592,30 @@ var PhaseCore = (function(){
     return resolveHit(s, best);
   }
 
+  // Forgiving tap (mobile). Targets the lockable node nearest the finger angle;
+  // if none near the finger is in its timing window, falls back to the best-timed
+  // node anywhere (so a rhythm tap still lands). Only a true no-node press is
+  // treated like an empty Space press (soft anti-mash penalty), never silently
+  // dropped -- the renderer always shows feedback for the returned result.
+  function pressNear(s, ang, angTol){
+    if(!s.alive) return null;
+    var win = windowPx(s);
+    var pick=-1, pickD=1e9;
+    for(var i=0;i<s.nodes.length;i++){
+      var d = Math.abs(((ang - s.nodes[i].ang + Math.PI)%(Math.PI*2)) - Math.PI);
+      if(d < angTol && nodeError(s, s.nodes[i]) <= win && d < pickD){ pickD=d; pick=i; }
+    }
+    if(pick < 0) pick = bestNode(s);
+    if(pick < 0){
+      s.health = clamp(s.health - CFG.H_MISTAP*0.6, 0, CFG.H_MAX);
+      if(s.chain >= 3){ s.chain = 0; s.chainTimer = 0; }
+      s.events.push({type:"emptypress"});
+      if(s.health<=0){ die(s); }
+      return {result:"empty"};
+    }
+    return resolveHit(s, pick);
+  }
+
   function die(s){
     s.alive = false;
     s.events.push({type:"death"});
@@ -561,7 +623,7 @@ var PhaseCore = (function(){
 
   return {
     CFG:CFG, TONES:TONES,
-    create:create, step:step, pressSpace:pressSpace, pressAt:pressAt,
+    create:create, step:step, pressSpace:pressSpace, pressAt:pressAt, pressNear:pressNear,
     resolveHit:resolveHit, bestNode:bestNode, nodeError:nodeError,
     beatLen:beatLen, windowPx:windowPx, ringTone:ringTone,
     levelThreshold:levelThreshold, tonesForLevel:tonesForLevel,
@@ -722,6 +784,10 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   var DPR = Math.min(2, window.devicePixelRatio||1);
   var W=0,H=0, CX=0,CY=0, edgeR=0;
 
+  // touch device? -> show the fixed rhythm button and lift the hint above it.
+  var IS_TOUCH = ("ontouchstart" in window) || (navigator.maxTouchPoints||0) > 0;
+  if(IS_TOUCH) document.body.classList.add("touch");
+
   var TONE_HEX = {cyan:"#39e6ff", magenta:"#ff4fd8", amber:"#ffc24b", violet:"#9b7bff"};
   var TONE_FREQ = {cyan:523.25, magenta:659.25, amber:783.99, violet:987.77}; // C5 E5 G5 B5
 
@@ -798,6 +864,27 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   var shocks=[];
   function shock(hex){ if(shocks.length<3) shocks.push({r:edgeR*0.4,a:0.8,hex:hex}); }
 
+  /* ---------- v10 discrete level transition ---------- */
+  // A level-up is a distinct MOMENT: a bright expanding "LEVEL N" ring + banner,
+  // a stepped vibe shift every 10 levels (the "phase band"), an ascending chord.
+  // The sim never freezes (keeps core pure & deterministic) — the discreteness is
+  // delivered visually/sonically so it reads as a clean step, not a creeping ramp.
+  var lvlFlash=0;            // 0..1, decays after each level-up (drives the burst)
+  var lvlFlashLevel=1;       // which level we just hit (for the big banner)
+  var phaseBand=0;           // floor((level-1)/10): changes the background vibe in steps
+  // 10 calm-but-distinct background hues, one per band, so every 10 levels the world shifts.
+  var BAND_HEX=["#0a0e1c","#0c1020","#0e1222","#101426","#12102a",
+                "#141028","#161028","#181026","#1a0e24","#1c0e22"];
+  function bandTint(level){
+    var b=Math.floor((Math.max(1,level)-1)/10) % BAND_HEX.length;
+    return BAND_HEX[b];
+  }
+  function hexFade(hex,a){
+    var h=hex.replace("#",""); 
+    var r=parseInt(h.substr(0,2),16), g=parseInt(h.substr(2,2),16), b=parseInt(h.substr(4,2),16);
+    return "rgba("+r+","+g+","+b+","+a+")";
+  }
+
   /* ---------- screen kick ---------- */
   var kick=0;
   function addKick(v){ kick=Math.min(kick+v, 14); }
@@ -831,7 +918,8 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       rivalEl=document.getElementById("rival"),
       rivalName=document.getElementById("rivalName"),
       rivalScore=document.getElementById("rivalScore"),
-      rankPop=document.getElementById("rankPop");
+      rankPop=document.getElementById("rankPop"),
+      pulseBtn=document.getElementById("pulseBtn");
 
   var scoreShown=0;
 
@@ -932,6 +1020,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     G = C.create(edgeR);
     G.nodeR = edgeR - C.CFG.RPAD;
     parts.length=0; shocks.length=0; kick=0; scoreShown=0;
+    lvlFlash=0; lvlFlashLevel=1; phaseBand=0;
     tut.on = withTutorial && !taught;
     tut.step=0; tut.hold=0;
     prevRunScore=0; rivalTarget=null; rankFlashT=0;
@@ -1109,13 +1198,31 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       else if(e.type==="surgestart"){ /* visual handled via e.surge on the lock */ }
       else if(e.type==="surgeend"){ surgeFlashT=0; surgeSound(false); }
       else if(e.type==="miss" || e.type==="emptypress"){ addKick(3); tone(120,0.12,"sawtooth",0.12); }
+      else if(e.type==="emptytap"){
+        // tap that hit nothing & nothing was lockable: soft acknowledge, NOT a penalty.
+        // a tiny ripple at the center so the input never feels dead/ignored.
+        burst(CX,CY,"#5a7fb0",5,3,false); addKick(1); tone(220,0.05,"sine",0.06);
+      }
       else if(e.type==="decohere"){
         if(pos) burst(pos.x,pos.y,"#ff4fd8",10,4,false);
         addKick(6); thud();
       }
       else if(e.type==="levelup"){
+        // discrete transition moment
+        lvlFlash = 1; lvlFlashLevel = e.level;
         showToast("LEVEL "+e.level, "#9b7bff");
-        if(AC){ tone(659.25,0.18,"triangle",0.3); tone(987.77,0.22,"sine",0.18); }
+        addKick(4); shock("#9b7bff");
+        var newBand = Math.floor((e.level-1)/10);
+        if(newBand !== phaseBand){
+          // crossing into a new "phase band" every 10 levels = bigger moment + vibe shift
+          phaseBand = newBand;
+          addKick(7); shock("#39e6ff");
+          showRankPop("ФАЗА "+(newBand+1)+" — новый горизонт");
+          if(AC){ tone(523.25,0.22,"triangle",0.32); tone(783.99,0.24,"sine",0.2); tone(1046.5,0.3,"sine",0.16); }
+        } else if(AC){
+          // normal level-up: short ascending two-note chord
+          tone(659.25,0.16,"triangle",0.28); tone(987.77,0.2,"sine",0.16);
+        }
       }
       else if(e.type==="death"){ /* handled by loop */ }
     }
@@ -1132,14 +1239,17 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   /* ---------- drawing ---------- */
   function draw(){
     // trail-fade background (cheap motion blur, dark) — kept subtle so the
-    // ring reads as ONE crisp line, not a stacked band (anti-cacophony)
+    // ring reads as ONE crisp line, not a stacked band (anti-cacophony).
+    // v10: the fade colour is tinted by the current PHASE BAND so the world's
+    // vibe shifts in discrete steps every 10 levels (very subtle, never noisy).
     ctx.globalCompositeOperation="source-over";
-    ctx.fillStyle="rgba(4,6,12,0.55)";
+    ctx.fillStyle = G && G.level ? hexFade(bandTint(G.level),0.55) : "rgba(4,6,12,0.55)";
     ctx.fillRect(0,0,W,H);
 
     var kx = kick? (Math.random()*2-1)*kick : 0;
     var ky = kick? (Math.random()*2-1)*kick : 0;
     kick *= 0.82; if(kick<0.4) kick=0;
+    if(lvlFlash>0){ lvlFlash -= 0.02; if(lvlFlash<0) lvlFlash=0; }
     ctx.save();
     ctx.translate(kx,ky);
 
@@ -1167,6 +1277,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     // ring intensifies sharply as it approaches the node-orbit (where hits happen)
     var nearOrbit = 1 - Math.min(1, Math.abs(rr - G.nodeR) / (G.edgeR*0.42));
     nearOrbit = nearOrbit*nearOrbit;  // ease-in so it stays calm until close, then POPS
+    if(IS_TOUCH) pulseBtn.style.setProperty("--beat", nearOrbit.toFixed(3));
     ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
     ctx.strokeStyle=rhex; ctx.globalAlpha=0.5 + nearOrbit*0.5;
     ctx.lineWidth=2 + nearOrbit*2.5; ctx.shadowBlur=10 + nearOrbit*22; ctx.shadowColor=rhex;
@@ -1355,6 +1466,21 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       ctx.globalAlpha=1;
     }
 
+    // ---- v10 LEVEL-UP flash: a big, brief "LEVEL N" punch so the transition
+    // reads as a discrete step (not a creeping difficulty ramp). Fades fast.
+    if(lvlFlash>0){
+      ctx.globalCompositeOperation="lighter";
+      var lf = lvlFlash;                       // 1 -> 0
+      var ease = lf*lf;                        // sharp in, soft out
+      ctx.textAlign="center";
+      ctx.globalAlpha = Math.min(1, lf*1.6);
+      ctx.fillStyle = "#cdbcff";
+      ctx.font = (700)+" "+Math.round(34+ease*26)+"px Segoe UI, sans-serif";
+      ctx.shadowBlur = 24*lf; ctx.shadowColor = "#9b7bff";
+      ctx.fillText("LEVEL "+lvlFlashLevel, CX, CY - edgeR*0.5);
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
+    }
+
     ctx.globalCompositeOperation="lighter";
     drawParts();
     ctx.restore();
@@ -1452,15 +1578,14 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       }
       return;
     }
-    if(clientX==null){ // Space
+    if(clientX==null){ // Space or fixed pulse-button -> auto-target best-timed node
       C.pressSpace(G);
     } else {
       var rect = cv.getBoundingClientRect();
       var dx = (clientX-rect.left) - CX, dy=(clientY-rect.top) - CY;
       var ang = Math.atan2(dy,dx);
-      var r = Math.hypot(dx,dy);
-      // tap tolerance widens for nodes; if click is way off the node ring, treat as space-like
-      C.pressAt(G, ang, 0.55);
+      // forgiving: prefer the node under the finger, else lock the best-timed one
+      C.pressNear(G, ang, 0.55);
     }
     consumeEvents();
   }
@@ -1480,6 +1605,13 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   cv.addEventListener("pointerdown", function(e){
     e.preventDefault();
     handlePress(e.clientX, e.clientY);
+  });
+
+  // Fixed rhythm button (touch): behaves exactly like Space — auto-targets the
+  // best-timed node. pointerdown (not click) so it fires on touch immediately.
+  document.getElementById("pulseBtn").addEventListener("pointerdown", function(e){
+    e.preventDefault(); e.stopPropagation();
+    handlePress(null, null);
   });
 
   document.getElementById("startBtn").addEventListener("click", function(){ startGame(true); });
