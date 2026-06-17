@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>PHASE</title>
 <style>
   :root{
@@ -23,7 +23,7 @@
   /* HUD */
   #hud{position:absolute;inset:0;pointer-events:none;}
   .corner{position:absolute;font-variant-numeric:tabular-nums;letter-spacing:.04em;}
-  #scoreWrap{top:18px;left:50%;transform:translateX(-50%);text-align:center;}
+  #scoreWrap{top:calc(18px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);text-align:center;}
   #score{font-size:clamp(34px,7vw,58px);font-weight:200;line-height:1;
     text-shadow:0 0 24px rgba(57,230,255,.35);}
   #lvl{margin-top:4px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.28em;}
@@ -56,9 +56,13 @@
 
   /* overlays */
   .screen{position:absolute;inset:0;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;text-align:center;padding:24px;
+    align-items:center;justify-content:center;text-align:center;
+    padding:calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
     background:radial-gradient(circle at 50% 42%,rgba(8,14,28,.72),rgba(2,4,10,.94));
-    pointer-events:auto;}
+    pointer-events:auto;overflow-y:auto;}
+  /* when content is taller than the screen (small phones), pin to top so the
+     title/score never clip behind the notch — center only when it fits */
+  @media (max-height:720px){ .screen{justify-content:flex-start;} }
   .hidden{display:none!important;}
   .title{font-size:clamp(56px,17vw,150px);font-weight:100;letter-spacing:.34em;
     margin-right:-.34em;
