@@ -90,9 +90,35 @@
     #endScreen .btn.sub{padding:9px 22px;}
     .endActions{margin-top:8px;}
   }
+  /* short/laptop-height viewports (incl. 13" MacBook 1280x800): the start screen
+     stack — big PHASE title + taglines + chips + 3 buttons + board + banner —
+     overflows when the limiting dimension is HEIGHT, not width. The vw-based title
+     clamp tops out at 150px on wide screens, so on a short-but-wide laptop the
+     title alone is ~150px and the whole column runs past the fold (title clipped
+     above the top edge, banner pushed below). Compact the start column here. */
+  @media (max-height:860px){
+    #startScreen .title{font-size:clamp(48px,10vh,104px);}
+    #startScreen .tagline{margin-top:10px;}
+    #startScreen #chips{margin-top:10px;}
+    #startScreen #startBtn{margin-top:16px;}
+    #startScreen .btn.sub{margin-top:8px;}
+    #startScreen .board{margin-top:14px;}
+    #startScreen .verBanner{margin-top:10px;}
+  }
+  @media (max-height:700px){
+    #startScreen .title{font-size:clamp(40px,9vh,80px);}
+    #startScreen .tagline{margin-top:6px;line-height:1.35;}
+    #startScreen #chips{margin-top:6px;flex-wrap:nowrap;gap:8px;}
+    #startScreen .chip{padding:6px 12px;font-size:12px;}
+    #startScreen #startBtn{margin-top:10px;}
+    #startScreen .board{margin-top:8px;padding:8px 8px 4px;}
+    #startScreen .board .boardHead{margin-bottom:6px;}
+    #startScreen .board .row{padding:3px 10px;font-size:12px;}
+    #startScreen .verBanner{margin-top:6px;}
+  }
   .hidden{display:none!important;}
   .title{font-size:clamp(56px,17vw,150px);font-weight:100;letter-spacing:.34em;
-    margin-right:-.34em;
+    line-height:1.02;margin-right:-.34em;
     background:linear-gradient(120deg,var(--cyan),var(--violet),var(--magenta));
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 0 40px rgba(57,230,255,.25));}
