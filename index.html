@@ -63,6 +63,33 @@
   /* when content is taller than the screen (small phones), pin to top so the
      title/score never clip behind the notch — center only when it fits */
   @media (max-height:720px){ .screen{justify-content:flex-start;} }
+  /* short-screen compaction: shrink the end-screen stack so "Ещё раз" + the
+     secondary actions (Поделиться / На главную) stay on-screen without scrolling.
+     Targets the tallest contributors: score, board rows, button gaps. */
+  @media (max-height:720px){
+    #endScore{font-size:clamp(48px,13vw,90px);margin:2px 0;}
+    #endVerdict{font-size:clamp(30px,8vw,56px);}
+    #medal{font-size:36px;margin-bottom:2px;}
+    .board{margin-top:14px;padding:10px 8px 6px;}
+    .board .boardHead{margin-bottom:6px;}
+    .board .row{padding:5px 12px;font-size:13px;}
+    #overtake{margin-top:6px;}
+    #endScreen .btn{margin-top:16px;}
+    .endActions{margin-top:10px;}
+  }
+  /* extra-tight tier (≤640px tall, budget phones): squeeze harder so the whole
+     end-screen stack — including both secondary actions — clears the fold. */
+  @media (max-height:640px){
+    #endScore{font-size:clamp(40px,11vw,72px);margin:0;}
+    #endVerdict{font-size:clamp(24px,7vw,44px);}
+    #endLine{font-size:12px;letter-spacing:.1em;}
+    #medal{font-size:28px;margin-bottom:0;}
+    .board{margin-top:10px;padding:8px 8px 4px;}
+    .board .row{padding:4px 10px;font-size:12px;}
+    #endScreen .btn{margin-top:12px;padding:13px 40px;}
+    #endScreen .btn.sub{padding:9px 22px;}
+    .endActions{margin-top:8px;}
+  }
   .hidden{display:none!important;}
   .title{font-size:clamp(56px,17vw,150px);font-weight:100;letter-spacing:.34em;
     margin-right:-.34em;
@@ -82,6 +109,14 @@
   .btn.sub{margin-top:14px;padding:11px 30px;font-size:12px;background:none;
     color:var(--dim);box-shadow:none;border:1px solid rgba(90,116,148,.3);}
   .btn.sub:hover{color:var(--ink);transform:none;box-shadow:none;}
+
+  /* end-screen secondary actions: share + home side-by-side so adding "На главную"
+     costs ~no extra vertical height (critical on short phones where the screen
+     already overflows). Wraps to two rows only if the viewport is truly narrow. */
+  .endActions{display:flex;gap:10px;flex-wrap:nowrap;justify-content:center;
+    align-items:center;margin-top:14px;width:min(440px,92vw);}
+  .endActions .btn.sub{margin-top:0;flex:1 1 0;min-width:0;
+    padding-left:14px;padding-right:14px;white-space:nowrap;}
 
   /* end screen specifics */
   #endVerdict{font-size:clamp(38px,10vw,72px);font-weight:200;letter-spacing:.16em;}
@@ -252,7 +287,10 @@
       <div id="endBoardList"></div>
     </div>
     <button id="againBtn" class="btn">Ещё раз</button>
-    <button id="shareBtn" class="btn sub">Поделиться результатом</button>
+    <div class="endActions">
+      <button id="shareBtn" class="btn sub">Поделиться</button>
+      <button id="homeBtn" class="btn sub">На главную</button>
+    </div>
   </div>
 
   <!-- UPGRADE TREE -->
@@ -2089,6 +2127,14 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     if(navigator.share){ navigator.share({title:"PHASE", text:txt, url:url}).catch(function(){}); }
     else if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(done).catch(done); }
     else { done(); }
+  });
+
+  // HOME: return from the end screen to the start screen (board/streak already
+  // refreshed by endGame's refreshStartUI; refresh again to be safe).
+  document.getElementById("homeBtn").addEventListener("click", function(){
+    document.getElementById("endScreen").classList.add("hidden");
+    refreshStartUI();
+    document.getElementById("startScreen").classList.remove("hidden");
   });
 
   // boot
