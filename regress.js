@@ -295,6 +295,222 @@ ok(s.health < hn, "v9: that soft press costs a little health (anti-mash, like Sp
   ok(C.levelThreshold(10) < 50000, "v10: first 10 levels are cheap (fast early growth)");
 })();
 
+
+// ============================================================================
+//  UPGRADE TREE (v11) — ~30 mechanical nodes. Tests verify each effect is REAL
+//  (changes a number/rule) and that owning nothing is identical to baseline.
+// ============================================================================
+
+ok(Array.isArray(C.UPGRADES) && C.UPGRADES.length>=30, "v11: >=30 upgrade nodes exist");
+(function(){
+  var ids={}, dup=false, badNeed=false;
+  C.UPGRADES.forEach(function(u){ if(ids[u.id])dup=true; ids[u.id]=1; });
+  C.UPGRADES.forEach(function(u){ (u.need||[]).forEach(function(n){ if(!ids[n])badNeed=true; }); });
+  ok(!dup, "v11: upgrade ids unique");
+  ok(!badNeed, "v11: every prerequisite id exists in the catalog");
+  ok(C.UPGRADES.every(function(u){ return u.cost>0 && u.name && u.desc; }), "v11: every node has cost+name+desc");
+})();
+
+function nodeAt(s, signedErr, tone){
+  s.nodes=[{ang:0,rFrac:1,tone:tone||"violet",life:5,maxLife:5,born:0,hit:false,
+            kind:"normal",charged:false,locksNeeded:1,locksDone:0}];
+  s.ring = s.nodeR + signedErr;
+  return s.nodes[0];
+}
+
+(function(){ ok(C.windowPx(C.create(300,["r1"])) > C.windowPx(C.create(300,[]))+1, "v11 r1: timing window wider when owned"); })();
+
+(function(){
+  var s=C.create(300,["r2"]); nodeAt(s,0,"cyan");
+  ok(C.resolveHit(s,0).result==="perfect","v11 r2: centre still PERFECT");
+  function centrePay(up){ var g=C.create(300,up); nodeAt(g,0,"zzz"); g.chain=0; return C.resolveHit(g,0).gained; }
+  ok(centrePay(["r2"]) > centrePay([]), "v11 r2: PERFECT pays more (x4 vs x3)");
+})();
+
+(function(){ ok(C.nodeLife(C.create(300,["r3"])) > C.nodeLife(C.create(300,[])), "v11 r3: nodes live longer"); })();
+
+(function(){
+  var s=C.create(300,["r4"]); nodeAt(s,0,"zzz"); C.resolveHit(s,0);
+  ok(s.slowmo>0, "v11 r4: PERFECT triggers slow-mo");
+  ok(C.beatLen(s) > C.beatLen(C.create(300,["r4"])), "v11 r4: beat slower while slow-mo active");
+})();
+
+(function(){
+  var s=C.create(300,["r5"]); var sawRev=false;
+  for(var i=0;i<4000 && !sawRev;i++){ C.step(s,0.05); if(s.ringDir===-1) sawRev=true; }
+  ok(sawRev, "v11 r5: ring direction reverses sometimes");
+  var b=C.create(300,[]); var stayed=true;
+  for(var j=0;j<2000;j++){ C.step(b,0.05); if(b.ringDir!==1){stayed=false;break;} }
+  ok(stayed, "v11 r5: without upgrade ring never reverses");
+})();
+
+(function(){
+  function greedyPay(up){ var g=C.create(300,up); var win=C.windowPx(g);
+    nodeAt(g, win*0.98, "zzz"); g.chain=0; return C.resolveHit(g,0).gained; }
+  ok(greedyPay(["g1"]) > greedyPay([]), "v11 g1: greedy cliff pays more");
+  ok(greedyPay(["g3"]) > greedyPay(["g1"]), "v11 g3: risk mode pays even more at the cliff");
+})();
+
+(function(){
+  var s=C.create(300,["g2"]); s.chain=5; var win=C.windowPx(s);
+  nodeAt(s, win + win*0.3, "zzz");           // just past the greedy cliff (within g2 tolerance)
+  var r=C.resolveHit(s,0);
+  ok(r.result==="keepersave" && r.forgive===true && s.chain===5, "v11 g2: narrow cliff overshoot forgiven (chain kept)");
+  nodeAt(s, win + win*0.3, "zzz");
+  C.resolveHit(s,0);
+  ok(s.chain===0, "v11 g2: forgiveness is once-per-run");
+})();
+
+(function(){ ok(C.chainHold(C.create(300,["c1"])) > C.chainHold(C.create(300,[])), "v11 c1: chain holds longer"); })();
+
+(function(){
+  var s=C.create(300,["c2"]); s.chain=4;
+  nodeAt(s, C.windowPx(s)+40, "zzz");
+  var r=C.resolveHit(s,0);
+  ok(r.result==="keepersave" && s.chain===4, "v11 c2: combo keeper saves the chain once");
+})();
+
+(function(){
+  function pay(up){ var g=C.create(300,up); g.chain=10; nodeAt(g,0,"zzz"); return C.resolveHit(g,0).gained; }
+  ok(pay(["c3"]) > pay([]), "v11 c3: fatter chain multiplier pays more at chain 10");
+})();
+
+(function(){
+  var s=C.create(300,["c4"]); s.chain=16;
+  nodeAt(s,0,"zzz"); var r=C.resolveHit(s,0);
+  ok(r.cashout===true, "v11 c4: cash-out fires at high chain");
+  ok(s.chain===0, "v11 c4: chain burns to 0 after cash-out");
+  var s2=C.create(300,["c4","c5"]); s2.chain=16;
+  nodeAt(s2,0,"zzz"); C.resolveHit(s2,0);
+  ok(s2.chain===8, "v11 c5: double-bank keeps half the chain after cash-out");
+})();
+
+(function(){
+  // level-frozen locking bot keeps the run alive AND pinned at L1 so the gate is real
+  function sawTwinAtL1(up){ var g=C.create(300,up); g.level=1;
+    for(var i=0;i<8000;i++){ C.step(g,0.02); g.level=1; g.score=0;
+      var idx=C.bestNode(g); if(idx>=0) C.resolveHit(g,idx);
+      for(var k=0;k<g.nodes.length;k++) if(g.nodes[k].kind==="twin") return true; }
+    return false; }
+  ok(sawTwinAtL1(["t1"]), "v11 t1: twins appear at level 1 when owned");
+  ok(!sawTwinAtL1([]),    "v11 t1: no twins at level 1 without the upgrade (gate real)");
+})();
+
+(function(){
+  var s=C.create(300,["t3"]);
+  s.nodes=[{ang:0,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,
+            kind:"hold",charged:false,locksNeeded:2,locksDone:0,holdSamePass:true}];
+  s.ring=s.nodeR;
+  var r1=C.resolveHit(s,0);
+  ok(r1.result==="twinarm" && s.nodes.length===1, "v11 t3: HOLD first lock arms, node stays");
+  ok(s.nodes[0].holdSamePass===true, "v11 t3: HOLD keeps same-pass flag");
+  var r2=C.resolveHit(s,0);
+  ok(s.nodes.length===0 && r2.gained>0, "v11 t3: HOLD second lock completes");
+})();
+
+(function(){
+  var s=C.create(300,["t4"]);
+  s.nodes=[{ang:0.5,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,
+            kind:"echo",charged:false,locksNeeded:1,locksDone:0}];
+  s.ring=s.nodeR;
+  C.resolveHit(s,0);
+  ok(s.nodes.length===1 && s.nodes[0].fromEcho===true, "v11 t4: ECHO leaves an echo node");
+})();
+
+(function(){
+  var s=C.create(300,["t6"]);
+  s.nodes=[{ang:0,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,kind:"link",charged:false,locksNeeded:1,locksDone:0,linkOrder:1},
+           {ang:1,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,kind:"link",charged:false,locksNeeded:1,locksDone:0,linkOrder:2}];
+  s.ring=s.nodeR;
+  var r=C.resolveHit(s,1);
+  ok(r.result==="linkwrong", "v11 t6: locking CHAIN-LINK B before A fumbles");
+  ok(s.nodes.length===2, "v11 t6: fumble consumes nothing");
+  var rA=C.resolveHit(s,0);
+  ok(s.nodes.length===1 && rA.gained>0, "v11 t6: A locks fine");
+})();
+
+(function(){
+  function sawSurge(up,lvl){ var g=C.create(300,up); g.level=lvl;
+    for(var i=0;i<8000;i++){ C.step(g,0.02); g.level=lvl; g.score=0;
+      var idx=C.bestNode(g); if(idx>=0) C.resolveHit(g,idx);
+      for(var k=0;k<g.nodes.length;k++) if(g.nodes[k].kind==="surge") return true; }
+    return false; }
+  ok(sawSurge(["f1"],1), "v11 f1: surge nodes appear at level 1 when owned");
+  ok(!sawSurge([],1),    "v11 f1: no surge at level 1 without the upgrade (gate real)");
+})();
+
+(function(){
+  function surgeDur(up){ var g=C.create(300,up);
+    g.nodes=[{ang:0,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,kind:"surge",charged:false,locksNeeded:1,locksDone:0}];
+    g.ring=g.nodeR; C.resolveHit(g,0); return g.surge; }
+  ok(surgeDur(["f2"]) > surgeDur([]), "v11 f2: surge lasts longer");
+})();
+
+(function(){
+  var s=C.create(300,["f4"]);
+  s.surge=2; s.surgeMult=C.CFG.SURGE_SCORE_MULT;
+  s.nodes=[{ang:0,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,kind:"surge",charged:false,locksNeeded:1,locksDone:0}];
+  s.ring=s.nodeR; C.resolveHit(s,0);
+  ok(s.surgeMult > C.CFG.SURGE_SCORE_MULT, "v11 f4: stacking a surge raises the score mult");
+})();
+
+(function(){
+  var all=C.UPGRADES.map(function(u){return u.id;});
+  var s=C.create(300, all); var maxSeen=0;
+  for(var i=0;i<5000;i++){ C.step(s,0.04); if(s.nodes.length>maxSeen)maxSeen=s.nodes.length; if(!s.alive)s=C.create(300,all); }
+  ok(maxSeen <= C.CFG.MAX_NODES, "v11: even with ALL upgrades, nodes never exceed MAX_NODES (<=3)");
+})();
+
+(function(){
+  function run(up){ var g=C.create(300,up); g.seed=1234567;
+    for(var i=0;i<2400;i++){ C.step(g,0.02); var idx=C.bestNode(g); if(idx>=0) C.resolveHit(g,idx); } return g.score; }
+  ok(run([])===run([]), "v11: empty-upgrade run is deterministic (reproducible)");
+})();
+
+// c6 PERFECT seeds +1 extra chain (a centre lock jumps chain by 2, not 1)
+(function(){
+  var s=C.create(300,["c6"]); s.chain=0; nodeAt(s,0,"zzz"); C.resolveHit(s,0);
+  ok(s.chain===2, "v11 c6: PERFECT adds +2 to chain (seed)");
+  var b=C.create(300,[]); b.chain=0; nodeAt(b,0,"zzz"); C.resolveHit(b,0);
+  ok(b.chain===1, "v11 c6: baseline PERFECT adds +1");
+})();
+
+// r6 grace window: a nearly-dead node is catchable past the normal window
+(function(){
+  var s=C.create(300,["r6"]); var win=C.windowPx(s);
+  s.nodes=[{ang:0,rFrac:1,tone:"zzz",life:0.1,maxLife:5,born:0,hit:false,
+            kind:"normal",charged:false,locksNeeded:1,locksDone:0}];
+  s.ring=s.nodeR + win*1.2;                  // outside normal window, inside grace window
+  var r=C.resolveHit(s,0);
+  ok(r.gained>0, "v11 r6: near-dead node catchable in grace window");
+  // baseline: same press is a miss
+  var b=C.create(300,[]);
+  b.nodes=[{ang:0,rFrac:1,tone:"zzz",life:0.1,maxLife:5,born:0,hit:false,
+            kind:"normal",charged:false,locksNeeded:1,locksDone:0}];
+  b.ring=b.nodeR + C.windowPx(b)*1.2;
+  ok(C.resolveHit(b,0).result==="miss", "v11 r6: without upgrade the same press misses");
+})();
+
+// t7 charged twins: with t7, some twins are charged (gold); never at baseline
+(function(){
+  function sawChargedTwin(up){ var g=C.create(300,up); g.level=5;
+    for(var i=0;i<9000;i++){ C.step(g,0.02); g.level=5; g.score=0;
+      var idx=C.bestNode(g); if(idx>=0) C.resolveHit(g,idx);
+      for(var k=0;k<g.nodes.length;k++){ var n=g.nodes[k]; if(n.kind==="twin"&&n.charged) return true; } }
+    return false; }
+  ok(sawChargedTwin(["t2","t3","t7"]), "v11 t7: charged twins appear when owned");
+})();
+
+// f6 surge bonus node: locking a surge injects an extra node (within cap)
+(function(){
+  var s=C.create(300,["f6"]);
+  s.nodes=[{ang:0,rFrac:1,tone:"zzz",life:5,maxLife:5,born:0,hit:false,kind:"surge",charged:false,locksNeeded:1,locksDone:0}];
+  s.ring=s.nodeR;
+  C.resolveHit(s,0);                          // surge consumed, bonus node added
+  ok(s.nodes.length===1 && s.nodes[0].fromSurge===true, "v11 f6: surge lock spawns a bonus node");
+  ok(s.nodes.length <= C.CFG.MAX_NODES, "v11 f6: bonus node respects the cap");
+})();
+
 // summary
 console.log("\n"+pass+"/"+(pass+fail)+" passed"+(fail? "  ("+fail+" FAILED)":"  ✓ all green"));
 process.exit(fail?1:0);

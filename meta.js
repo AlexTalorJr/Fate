@@ -1,3 +1,4 @@
+"use strict";
 var PhaseMeta = (function(){
   // mulberry32 — tiny deterministic PRNG
   function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
@@ -119,4 +120,4 @@ var PhaseMeta = (function(){
     today:function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
   };
 })();
-if(typeof module!=="undefined" && module.exports){ module.exports = (module.exports, PhaseMeta); }
+module.exports = PhaseMeta;
