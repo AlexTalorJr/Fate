@@ -1559,6 +1559,10 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     ctx.clearRect(0,0,W,H);
     var core = themeCore();
     var ghost = opts.ghost!=null ? opts.ghost : "rgba(120,150,200,0.10)";
+    // ghostUnlit: draw faint placeholders for not-yet-revealed LETTER pixels.
+    // On the decode screen this is a deliberate hint (silhouette). On the start
+    // strip it must be OFF, otherwise the full word is legible at 0% revealed.
+    var ghostUnlit = opts.ghostUnlit!==false;
     for(var i=0;i<g.cells.length;i++){
       var c=g.cells[i];
       var x=c.gx*cell, y=c.gy*cell;
@@ -1570,7 +1574,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         ctx.globalAlpha = 1;
         ctx.fillStyle = core;
         ctx.fillRect(x,y,px,px);
-      } else {
+      } else if(ghostUnlit){
         ctx.fillStyle = ghost;
         ctx.fillRect(x,y,px,px);
       }
@@ -1582,9 +1586,12 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     var wrap=document.getElementById("glyphWrap"); if(!wrap) return;
     var revealed = M.glyphRevealed(maxLevelReached());
     var total = M.glyphLitTotal();
+    // Nothing earned yet -> hide the strip completely (no empty teaser for newcomers).
+    if(revealed<=0){ wrap.classList.add("hidden"); return; }
+    wrap.classList.remove("hidden");
     var pct = Math.round(revealed/total*100);
     var cv=document.getElementById("glyphCanvas");
-    drawGlyph(cv, 3, revealed, {gap:1, showGrid:false, ghost:"rgba(120,150,200,0.07)"});
+    drawGlyph(cv, 3, revealed, {gap:1, showGrid:false, ghostUnlit:false});
     var pctEl=document.getElementById("glyphPct"); if(pctEl) pctEl.textContent = pct+"%";
     // make the strip itself a shortcut into the decode screen once it's unlocked
     if(decodeUnlocked()){ cv.classList.add("clickable"); } else { cv.classList.remove("clickable"); }
