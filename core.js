@@ -156,7 +156,8 @@ var PhaseCore = (function(){
 
   // Create a fresh game state. edgeR = playfield radius in px.
   // up = array of owned upgrade ids (empty by default; renderer injects from store).
-  function create(edgeR, up){
+  function create(edgeR, up, opts){
+    opts = opts || {};
     return {
       edgeR: edgeR,
       nodeR: edgeR - CFG.RPAD,        // radius at which nodes live
@@ -170,6 +171,7 @@ var PhaseCore = (function(){
       ringPrev:0,
       beatPhase:0,                     // 0..1 within current beat
       ringDir:1,                       // +1 center->edge, -1 edge->center (r5 reverse-ring)
+      mirror: !!opts.mirror,           // v12 secret MIRROR mode: ring collapses edge->center
       nodes:[],
       spawnTimer: 0.5,
       refillTimer: 0.25,
@@ -350,7 +352,11 @@ var PhaseCore = (function(){
       else s.ringDir = 1;
     }
     s.ringPrev = s.ring;
-    var ph = s.ringDir>0 ? s.beatPhase : (1 - s.beatPhase);
+    // base phase 0..1 within the beat; ringDir>0 = center->edge, <0 = edge->center.
+    // MIRROR mode flips the resting direction (ring collapses edge->center); r5's random
+    // reverse still toggles on top of that, so the two compose via XOR of intent.
+    var effDir = s.mirror ? -s.ringDir : s.ringDir;
+    var ph = effDir>0 ? s.beatPhase : (1 - s.beatPhase);
     s.ring = Math.max(0, ph * s.edgeR);
     if(crossed){ s.events.push({type:"beat", dir:s.ringDir}); }
 

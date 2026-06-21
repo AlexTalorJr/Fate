@@ -116,6 +116,38 @@
     #startScreen .board .row{padding:3px 10px;font-size:12px;}
     #startScreen .verBanner{margin-top:6px;}
   }
+  /* v12 inscription strip on the start screen — a tiny etched constellation that
+     fills in as you climb. Canvas keeps it crisp + cheap. */
+  .glyphWrap{margin-top:16px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  #glyphCanvas{image-rendering:pixelated;opacity:.9;cursor:default;
+    position:static;inset:auto;width:auto;max-width:100%;height:auto;flex:0 0 auto;}
+  #glyphCanvas.clickable{cursor:pointer;}
+  .glyphHint{font-size:9px;letter-spacing:.32em;color:var(--dim);text-transform:uppercase;opacity:.7;}
+  .glyphHint b{color:var(--amber);font-weight:600;}
+  /* decode screen */
+  #decodeScreen .title{font-size:clamp(34px,7vw,64px);}
+  .decodeSub{font-size:13px;color:var(--dim);max-width:380px;line-height:1.5;margin-top:6px;}
+  #decodeBigCanvas{image-rendering:pixelated;margin:22px 0 6px;position:static;inset:auto;
+    width:auto;max-width:92vw;height:auto;
+    filter:drop-shadow(0 0 14px rgba(57,230,255,.18));}
+  .decodeProg{font-size:10px;letter-spacing:.28em;color:var(--dim);text-transform:uppercase;}
+  .decodeForm{margin-top:20px;display:flex;flex-direction:column;align-items:center;gap:12px;width:min(340px,86vw);}
+  #decodeInput{width:100%;text-align:center;font-size:20px;letter-spacing:.42em;
+    text-transform:uppercase;color:var(--ink);background:rgba(8,14,28,.6);
+    border:1px solid rgba(120,150,200,.24);border-radius:12px;padding:13px 12px;
+    outline:none;font-family:inherit;}
+  #decodeInput:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(57,230,255,.12);}
+  #decodeMsg{min-height:18px;font-size:13px;letter-spacing:.04em;}
+  #decodeMsg.good{color:#7fffd4;} #decodeMsg.bad{color:#ff7a90;}
+  /* mirror toggle (shown on start once decoded) */
+  .secretRow{margin-top:12px;display:flex;align-items:center;gap:10px;
+    font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#bfe0ff;}
+  .tgl{position:relative;width:42px;height:22px;border-radius:22px;cursor:pointer;
+    background:rgba(120,150,200,.18);border:1px solid rgba(120,150,200,.3);transition:.18s;}
+  .tgl.on{background:rgba(57,230,255,.35);border-color:var(--cyan);}
+  .tgl .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+    background:#cfe9ff;transition:.18s;}
+  .tgl.on .knob{left:22px;background:#eafdff;}
   .hidden{display:none!important;}
   .title{font-size:clamp(56px,17vw,150px);font-weight:100;letter-spacing:.34em;
     line-height:1.02;margin-right:-.34em;
@@ -293,12 +325,36 @@
     </div>
     <button id="startBtn" class="btn">Играть</button>
     <button id="treeBtn" class="btn sub">⬡ Дерево фазы</button>
+    <button id="decodeBtn" class="btn sub hidden">◌ Расшифровка</button>
     <button id="skipBtn" class="btn sub">Пропустить обучение</button>
+    <div class="secretRow hidden" id="secretRow">
+      <span>Зеркало</span>
+      <div class="tgl" id="mirrorTgl"><div class="knob"></div></div>
+    </div>
+    <div class="glyphWrap" id="glyphWrap">
+      <canvas id="glyphCanvas" width="318" height="49"></canvas>
+      <div class="glyphHint" id="glyphHint">надпись · <b id="glyphPct">0%</b></div>
+    </div>
     <div class="board" id="startBoard">
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v11</div>
+    <div class="verBanner">PHASE · v12</div>
+  </div>
+
+  <!-- DECODE -->
+  <div id="decodeScreen" class="screen hidden">
+    <div class="title">◌</div>
+    <div class="decodeSub">Поднимаясь по уровням, ты вытравливаешь скрытое слово, пиксель за пикселем. Узнаёшь его?</div>
+    <canvas id="decodeBigCanvas" width="372" height="98"></canvas>
+    <div class="decodeProg" id="decodeProgTxt">проявлено 0%</div>
+    <div class="decodeForm">
+      <input id="decodeInput" maxlength="16" autocomplete="off" autocapitalize="characters"
+             spellcheck="false" placeholder="• • • • • • • • •">
+      <div id="decodeMsg"></div>
+      <button id="decodeSubmit" class="btn">Проверить</button>
+    </div>
+    <button id="decodeBackBtn" class="btn sub">← Назад</button>
   </div>
 
   <!-- END -->
@@ -512,7 +568,8 @@ var PhaseCore = (function(){
 
   // Create a fresh game state. edgeR = playfield radius in px.
   // up = array of owned upgrade ids (empty by default; renderer injects from store).
-  function create(edgeR, up){
+  function create(edgeR, up, opts){
+    opts = opts || {};
     return {
       edgeR: edgeR,
       nodeR: edgeR - CFG.RPAD,        // radius at which nodes live
@@ -526,6 +583,7 @@ var PhaseCore = (function(){
       ringPrev:0,
       beatPhase:0,                     // 0..1 within current beat
       ringDir:1,                       // +1 center->edge, -1 edge->center (r5 reverse-ring)
+      mirror: !!opts.mirror,           // v12 secret MIRROR mode: ring collapses edge->center
       nodes:[],
       spawnTimer: 0.5,
       refillTimer: 0.25,
@@ -706,7 +764,11 @@ var PhaseCore = (function(){
       else s.ringDir = 1;
     }
     s.ringPrev = s.ring;
-    var ph = s.ringDir>0 ? s.beatPhase : (1 - s.beatPhase);
+    // base phase 0..1 within the beat; ringDir>0 = center->edge, <0 = edge->center.
+    // MIRROR mode flips the resting direction (ring collapses edge->center); r5's random
+    // reverse still toggles on top of that, so the two compose via XOR of intent.
+    var effDir = s.mirror ? -s.ringDir : s.ringDir;
+    var ph = effDir>0 ? s.beatPhase : (1 - s.beatPhase);
     s.ring = Math.max(0, ph * s.edgeR);
     if(crossed){ s.events.push({type:"beat", dir:s.ringDir}); }
 
@@ -1147,11 +1209,61 @@ var PhaseMeta = (function(){
 
   function fmt(n){ return (n||0).toLocaleString("ru-RU"); }
 
+  /* ---------- v12: inscription (glyph) layer ----------
+     A hidden word — RESONANCE — is etched pixel by pixel as the player climbs.
+     Each letter is a 5x7 bitmap; only LIT pixels count toward progress, so the
+     word literally resolves out of darkness. Lit pixels are revealed in a fixed
+     deterministic order (left-to-right, top-to-bottom across the whole word) as a
+     function of the player's max level reached, fully open at GLYPH_FULL_LEVEL. */
+  var GLYPH_WORD = "RESONANCE";
+  var GLYPH_FULL_LEVEL = 200;
+  var GLYPH_FONT = {
+    R:["11110","10001","10001","11110","10100","10010","10001"],
+    E:["11111","10000","10000","11110","10000","10000","11111"],
+    S:["01111","10000","10000","01110","00001","00001","11110"],
+    O:["01110","10001","10001","10001","10001","10001","01110"],
+    N:["10001","11001","10101","10101","10011","10001","10001"],
+    A:["01110","10001","10001","11111","10001","10001","10001"],
+    C:["01111","10000","10000","10000","10000","10000","01111"]
+  };
+  var _glyphCache = null;
+  function glyphCells(){
+    if(_glyphCache) return _glyphCache;
+    var cells=[], ord=0;
+    var letters = GLYPH_WORD.split("");
+    for(var li=0; li<letters.length; li++){
+      var bmp = GLYPH_FONT[letters[li]];
+      var baseX = li*6;
+      for(var gy=0; gy<7; gy++){
+        var rowStr = bmp[gy];
+        for(var cx=0; cx<5; cx++){
+          var lit = rowStr.charAt(cx)==="1";
+          cells.push({gx:baseX+cx, gy:gy, lit:lit, ord:lit?ord:-1, li:li});
+          if(lit) ord++;
+        }
+      }
+    }
+    _glyphCache = {cells:cells, litCount:ord, cols:letters.length*6-1, rows:7};
+    return _glyphCache;
+  }
+  function glyphLitTotal(){ return glyphCells().litCount; }
+  function glyphRevealed(maxLevel){
+    var total = glyphLitTotal();
+    var f = Math.max(0, Math.min(1, (maxLevel||1)/GLYPH_FULL_LEVEL));
+    return Math.floor(total*f);
+  }
+  function glyphFrac(maxLevel){ return glyphRevealed(maxLevel)/glyphLitTotal(); }
+  function glyphNormalize(s){ return String(s||"").toUpperCase().replace(/[^A-Z]/g,""); }
+  function glyphCheck(guess){ return glyphNormalize(guess)===GLYPH_WORD; }
+
   return {
     _mulberry:mulberry, dailyField:dailyField, standings:standings,
     passedBetween:passedBetween, sessionGoal:sessionGoal, goalProgress:goalProgress,
     updateStreak:updateStreak, unlockedThemes:unlockedThemes, nextTheme:nextTheme,
     THEMES:THEMES, NAMES:NAMES, fmt:fmt,
+    GLYPH_WORD:GLYPH_WORD, GLYPH_FULL_LEVEL:GLYPH_FULL_LEVEL,
+    glyphCells:glyphCells, glyphLitTotal:glyphLitTotal, glyphRevealed:glyphRevealed,
+    glyphFrac:glyphFrac, glyphNormalize:glyphNormalize, glyphCheck:glyphCheck,
     today:function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
   };
 })();
@@ -1351,6 +1463,18 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   // tree opens up as you climb. Simpler + honest: gate by a stored maxLevel.
   function maxLevelReached(){ return +(store.get("maxLevel")||1); }
 
+  /* ---- v12 inscription/secret persist ----
+     decoded  : player has correctly typed RESONANCE at least once
+     mirrorOn : secret MIRROR mode toggle (only meaningful once decoded)
+     The decode screen unlocks once enough of the word is etched to be guessable. */
+  var GLYPH_DECODE_GATE = 0.42;          // ~42% of pixels (~L85) before the decode UI appears
+  function isDecoded(){ return store.get("decoded")==="1"; }
+  function setDecoded(){ store.set("decoded","1"); }
+  function mirrorOn(){ return store.get("mirrorOn")==="1"; }
+  function setMirror(v){ store.set("mirrorOn", v?"1":"0"); }
+  function glyphFracNow(){ return M.glyphFrac(maxLevelReached()); }
+  function decodeUnlocked(){ return isDecoded() || glyphFracNow() >= GLYPH_DECODE_GATE; }
+
   function themeCore(){ var t=M.THEMES.find(function(x){return x.id===activeTheme;}); return t?t.core:"#39e6ff"; }
 
   // build a leaderboard <div> list into a container, marking the player's row
@@ -1420,10 +1544,107 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   bestEl.textContent = BEST;
 
   // populate start-screen chips + board on boot
+  /* ---- v12 inscription rendering + decode screen ----
+     Draw the etched word into a canvas. revealedCount lit pixels are "on"
+     (theme-tinted glow), the rest are faint ghosts so the silhouette hints at
+     letter shapes without giving them away. */
+  function drawGlyph(canvas, px, revealedCount, opts){
+    opts = opts || {};
+    var g = M.glyphCells();
+    var ctx = canvas.getContext("2d");
+    var gap = opts.gap!=null ? opts.gap : 1;          // spacing between pixels
+    var cell = px + gap;
+    var W = g.cols*cell - gap, H = g.rows*cell - gap;
+    canvas.width = W; canvas.height = H;
+    ctx.clearRect(0,0,W,H);
+    var core = themeCore();
+    var ghost = opts.ghost!=null ? opts.ghost : "rgba(120,150,200,0.10)";
+    for(var i=0;i<g.cells.length;i++){
+      var c=g.cells[i];
+      var x=c.gx*cell, y=c.gy*cell;
+      if(!c.lit){
+        if(opts.showGrid){ ctx.fillStyle=ghost; ctx.fillRect(x,y,px,px); }
+        continue;
+      }
+      if(c.ord < revealedCount){
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = core;
+        ctx.fillRect(x,y,px,px);
+      } else {
+        ctx.fillStyle = ghost;
+        ctx.fillRect(x,y,px,px);
+      }
+    }
+    return {w:W,h:H};
+  }
+
+  function refreshGlyphStrip(){
+    var wrap=document.getElementById("glyphWrap"); if(!wrap) return;
+    var revealed = M.glyphRevealed(maxLevelReached());
+    var total = M.glyphLitTotal();
+    var pct = Math.round(revealed/total*100);
+    var cv=document.getElementById("glyphCanvas");
+    drawGlyph(cv, 3, revealed, {gap:1, showGrid:false, ghost:"rgba(120,150,200,0.07)"});
+    var pctEl=document.getElementById("glyphPct"); if(pctEl) pctEl.textContent = pct+"%";
+    // make the strip itself a shortcut into the decode screen once it's unlocked
+    if(decodeUnlocked()){ cv.classList.add("clickable"); } else { cv.classList.remove("clickable"); }
+  }
+
+  function refreshSecretUI(){
+    var dBtn=document.getElementById("decodeBtn");
+    if(dBtn) dBtn.classList.toggle("hidden", !decodeUnlocked());
+    var row=document.getElementById("secretRow");
+    if(row) row.classList.toggle("hidden", !isDecoded());
+    var tgl=document.getElementById("mirrorTgl");
+    if(tgl) tgl.classList.toggle("on", mirrorOn());
+  }
+
+  function openDecode(){
+    var revealed = M.glyphRevealed(maxLevelReached());
+    var total = M.glyphLitTotal();
+    drawGlyph(document.getElementById("decodeBigCanvas"), 7, revealed,
+              {gap:2, showGrid:true, ghost:"rgba(120,150,200,0.09)"});
+    document.getElementById("decodeProgTxt").textContent =
+      "проявлено "+Math.round(revealed/total*100)+"%";
+    var msg=document.getElementById("decodeMsg"); msg.textContent=""; msg.className="";
+    var inp=document.getElementById("decodeInput");
+    inp.value="";
+    document.getElementById("startScreen").classList.add("hidden");
+    document.getElementById("decodeScreen").classList.remove("hidden");
+    setTimeout(function(){ try{ inp.focus(); }catch(e){} }, 60);
+  }
+  function closeDecode(){
+    document.getElementById("decodeScreen").classList.add("hidden");
+    document.getElementById("startScreen").classList.remove("hidden");
+    refreshSecretUI();
+  }
+  function submitDecode(){
+    var inp=document.getElementById("decodeInput");
+    var msg=document.getElementById("decodeMsg");
+    if(M.glyphCheck(inp.value)){
+      var firstTime = !isDecoded();
+      setDecoded();
+      msg.className="good";
+      msg.textContent = firstTime ? "РЕЗОНАНС. Открыт режим «Зеркало»." : "Верно — RESONANCE.";
+      // light the whole word as a reward flourish
+      drawGlyph(document.getElementById("decodeBigCanvas"), 7, M.glyphLitTotal(),
+                {gap:2, showGrid:true, ghost:"rgba(120,150,200,0.09)"});
+      if(firstTime){ setMirror(true); }
+      try{ tone(880,0.18,"sine",0.3); setTimeout(function(){tone(1320,0.22,"sine",0.3);},120); }catch(e){}
+      setTimeout(closeDecode, 1500);
+    } else {
+      msg.className="bad";
+      msg.textContent = "Не то. Поднимись ещё — проявится больше.";
+      try{ tone(180,0.16,"square",0.25); }catch(e){}
+    }
+  }
+
   function refreshStartUI(){
     var sEl=document.getElementById("streakTxt"); if(sEl) sEl.textContent = "День "+streakN+" подряд";
     var gEl=document.getElementById("goalTxt"); if(gEl) gEl.textContent = goal.label;
     var sb=document.getElementById("startBoardList"); if(sb) renderBoard(sb, BEST, null);
+    refreshGlyphStrip();
+    refreshSecretUI();
   }
 
   // tutorial overlay state (lightweight, drawn on canvas)
@@ -1433,7 +1654,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     audioInit();
     if(AC && AC.state==="suspended") AC.resume();
     resize();
-    G = C.create(edgeR, ownedUp);
+    G = C.create(edgeR, ownedUp, {mirror: isDecoded() && mirrorOn()});
     G.nodeR = edgeR - C.CFG.RPAD;
     parts.length=0; shocks.length=0; kick=0; scoreShown=0;
     lvlFlash=0; lvlFlashLevel=1; phaseBand=0;
@@ -2143,6 +2364,22 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   document.getElementById("treeBackBtn").addEventListener("click", closeTree);
   buyBtn.addEventListener("click", buySelected);
   /* =================== end UPGRADE TREE UI =================== */
+
+  /* v12 decode + mirror listeners */
+  document.getElementById("decodeBtn").addEventListener("click", openDecode);
+  document.getElementById("decodeBackBtn").addEventListener("click", closeDecode);
+  document.getElementById("decodeSubmit").addEventListener("click", submitDecode);
+  document.getElementById("decodeInput").addEventListener("keydown", function(e){
+    if(e.key==="Enter"){ e.preventDefault(); submitDecode(); }
+  });
+  document.getElementById("glyphCanvas").addEventListener("click", function(){
+    if(decodeUnlocked()) openDecode();
+  });
+  document.getElementById("mirrorTgl").addEventListener("click", function(){
+    if(!isDecoded()) return;
+    setMirror(!mirrorOn());
+    this.classList.toggle("on", mirrorOn());
+  });
 
   // SHARE: copy a result card text (works on GitHub Pages, no backend)
   document.getElementById("shareBtn").addEventListener("click", function(){

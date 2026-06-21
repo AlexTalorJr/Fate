@@ -511,6 +511,49 @@ function nodeAt(s, signedErr, tone){
   ok(s.nodes.length <= C.CFG.MAX_NODES, "v11 f6: bonus node respects the cap");
 })();
 
+// --- v12 MIRROR mode: ring collapses edge->center (inverted phase) ---
+(function(){
+  // normal ring: early in the beat the ring is near the CENTER (small radius)
+  var n=C.create(300);
+  C.step(n, C.beatLen(n)*0.15);
+  ok(n.ring < 90, "normal: early-beat ring near center");
+  // mirror ring: early in the beat the ring is near the EDGE (large radius)
+  var m=C.create(300,[],{mirror:true});
+  ok(m.mirror===true, "mirror flag set via opts");
+  C.step(m, C.beatLen(m)*0.15);
+  ok(m.ring > 210, "mirror: early-beat ring near edge");
+  // at half-beat both sit mid-field (symmetry holds)
+  var m2=C.create(300,[],{mirror:true});
+  C.step(m2, C.beatLen(m2)*0.5);
+  approx(m2.ring, 150, 8, "mirror: half-beat ring still mid-field");
+  // hit detection is unchanged: ring exactly on node => PERFECT regardless of mode
+  var m3=C.create(300,[],{mirror:true});
+  m3.nodes=[{ang:0,tone:"cyan",life:5,maxLife:5,born:0,hit:false}];
+  m3.ring=m3.nodeR;
+  ok(C.resolveHit(m3,0).result==="perfect", "mirror: hit rule intact (on-node => PERFECT)");
+  // default (no opts) stays non-mirror
+  ok(C.create(300).mirror===false, "default mode is not mirror");
+})();
+
+// --- v12 glyph (inscription) layer helpers ---
+(function(){
+  var M=require("./meta.js");
+  ok(M.GLYPH_WORD==="RESONANCE", "glyph word is RESONANCE");
+  var total=M.glyphLitTotal();
+  ok(total>0 && total<9*5*7, "lit pixel total in plausible range");
+  ok(M.glyphRevealed(1) < total, "L1 reveals fewer than all pixels");
+  ok(M.glyphRevealed(M.GLYPH_FULL_LEVEL) === total, "full level reveals every lit pixel");
+  ok(M.glyphRevealed(99999) === total, "reveal clamps at full");
+  ok(M.glyphRevealed(100) <= M.glyphRevealed(150), "reveal is monotonic in level");
+  ok(M.glyphFrac(M.GLYPH_FULL_LEVEL)===1, "frac=1 at full level");
+  ok(M.glyphCheck("resonance")===true, "guess check is case/space-insensitive");
+  ok(M.glyphCheck(" RES ON ANCE ")===true, "guess check strips non-letters");
+  ok(M.glyphCheck("resonant")===false, "wrong guess rejected");
+  var gc=M.glyphCells();
+  ok(gc.rows===7, "glyph grid is 7 rows tall");
+  ok(gc.cols===9*6-1, "glyph grid width = letters*6-1");
+})();
+
 // summary
 console.log("\n"+pass+"/"+(pass+fail)+" passed"+(fail? "  ("+fail+" FAILED)":"  ✓ all green"));
 process.exit(fail?1:0);

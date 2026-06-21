@@ -112,11 +112,61 @@ var PhaseMeta = (function(){
 
   function fmt(n){ return (n||0).toLocaleString("ru-RU"); }
 
+  /* ---------- v12: inscription (glyph) layer ----------
+     A hidden word — RESONANCE — is etched pixel by pixel as the player climbs.
+     Each letter is a 5x7 bitmap; only LIT pixels count toward progress, so the
+     word literally resolves out of darkness. Lit pixels are revealed in a fixed
+     deterministic order (left-to-right, top-to-bottom across the whole word) as a
+     function of the player's max level reached, fully open at GLYPH_FULL_LEVEL. */
+  var GLYPH_WORD = "RESONANCE";
+  var GLYPH_FULL_LEVEL = 200;
+  var GLYPH_FONT = {
+    R:["11110","10001","10001","11110","10100","10010","10001"],
+    E:["11111","10000","10000","11110","10000","10000","11111"],
+    S:["01111","10000","10000","01110","00001","00001","11110"],
+    O:["01110","10001","10001","10001","10001","10001","01110"],
+    N:["10001","11001","10101","10101","10011","10001","10001"],
+    A:["01110","10001","10001","11111","10001","10001","10001"],
+    C:["01111","10000","10000","10000","10000","10000","01111"]
+  };
+  var _glyphCache = null;
+  function glyphCells(){
+    if(_glyphCache) return _glyphCache;
+    var cells=[], ord=0;
+    var letters = GLYPH_WORD.split("");
+    for(var li=0; li<letters.length; li++){
+      var bmp = GLYPH_FONT[letters[li]];
+      var baseX = li*6;
+      for(var gy=0; gy<7; gy++){
+        var rowStr = bmp[gy];
+        for(var cx=0; cx<5; cx++){
+          var lit = rowStr.charAt(cx)==="1";
+          cells.push({gx:baseX+cx, gy:gy, lit:lit, ord:lit?ord:-1, li:li});
+          if(lit) ord++;
+        }
+      }
+    }
+    _glyphCache = {cells:cells, litCount:ord, cols:letters.length*6-1, rows:7};
+    return _glyphCache;
+  }
+  function glyphLitTotal(){ return glyphCells().litCount; }
+  function glyphRevealed(maxLevel){
+    var total = glyphLitTotal();
+    var f = Math.max(0, Math.min(1, (maxLevel||1)/GLYPH_FULL_LEVEL));
+    return Math.floor(total*f);
+  }
+  function glyphFrac(maxLevel){ return glyphRevealed(maxLevel)/glyphLitTotal(); }
+  function glyphNormalize(s){ return String(s||"").toUpperCase().replace(/[^A-Z]/g,""); }
+  function glyphCheck(guess){ return glyphNormalize(guess)===GLYPH_WORD; }
+
   return {
     _mulberry:mulberry, dailyField:dailyField, standings:standings,
     passedBetween:passedBetween, sessionGoal:sessionGoal, goalProgress:goalProgress,
     updateStreak:updateStreak, unlockedThemes:unlockedThemes, nextTheme:nextTheme,
     THEMES:THEMES, NAMES:NAMES, fmt:fmt,
+    GLYPH_WORD:GLYPH_WORD, GLYPH_FULL_LEVEL:GLYPH_FULL_LEVEL,
+    glyphCells:glyphCells, glyphLitTotal:glyphLitTotal, glyphRevealed:glyphRevealed,
+    glyphFrac:glyphFrac, glyphNormalize:glyphNormalize, glyphCheck:glyphCheck,
     today:function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
   };
 })();
