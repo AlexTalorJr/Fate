@@ -369,7 +369,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v16</div>
+    <div class="verBanner">PHASE · v17</div>
   </div>
 
   <!-- DECODE -->
@@ -670,6 +670,16 @@ var PhaseCore = (function(){
     return h;
   }
   function refillGap(s){ return lvlFloor(CFG.REFILL, CFG.REFILL_FLOOR, 0.03, s.level); }
+  // EARLY-GAME FORGIVENESS: scales DOWN health damage in the first levels so a learning
+  // player (the 10y-o playtest: "ends too fast, can't beat 15k") lives long enough for
+  // the score to climb before difficulty bites. ~0.45x at L1 -> 1.0x by L8, then full.
+  // High-level stakes (where skilled players actually live) are untouched -> calibration
+  // of mash-death / idle-death / the perfect-bot ceiling at high levels is preserved.
+  function dmgScale(s){
+    var L = s.level||1;
+    if(L>=8) return 1;
+    return 0.45 + 0.55*((L-1)/7);
+  }
   // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
   function targetNodes(s){
     var t = CFG.TARGET_NODES + Math.floor((s.level-1)/4); // 2 early, 3 from level 5+
@@ -829,7 +839,7 @@ var PhaseCore = (function(){
         s.nodes.splice(i,1);
         s.stats.decohered++;
         s.chain = 0; s.chainTimer = 0;
-        s.health = clamp(s.health - CFG.H_HIT, 0, CFG.H_MAX);
+        s.health = clamp(s.health - CFG.H_HIT*dmgScale(s), 0, CFG.H_MAX);
         s.events.push({type:"decohere", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone});
         if(s.health<=0){ die(s); return; }
       }
@@ -919,7 +929,7 @@ var PhaseCore = (function(){
         return {result:"keepersave", chain:s.chain};
       }
       s.chain = 0; s.chainTimer = 0; s.greedyRun = 0;
-      s.health = clamp(s.health - CFG.H_MISTAP, 0, CFG.H_MAX);
+      s.health = clamp(s.health - CFG.H_MISTAP*dmgScale(s), 0, CFG.H_MAX);
       s.stats.miss++;
       s.events.push({type:"miss", ang:nd.ang, rFrac:nd.rFrac});
       if(s.health<=0){ die(s); }
@@ -1056,7 +1066,7 @@ var PhaseCore = (function(){
     var idx = bestNode(s);
     if(idx < 0){
       // space in empty space -> tiny penalty (anti-mash), softer than a real miss
-      s.health = clamp(s.health - CFG.H_MISTAP*0.6, 0, CFG.H_MAX);
+      s.health = clamp(s.health - CFG.H_MISTAP*0.6*dmgScale(s), 0, CFG.H_MAX);
       if(s.chain >= 3){ s.chain = 0; s.chainTimer = 0; }
       s.events.push({type:"emptypress"});
       if(s.health<=0){ die(s); }
@@ -1096,7 +1106,7 @@ var PhaseCore = (function(){
     }
     if(pick < 0) pick = bestNode(s);
     if(pick < 0){
-      s.health = clamp(s.health - CFG.H_MISTAP*0.6, 0, CFG.H_MAX);
+      s.health = clamp(s.health - CFG.H_MISTAP*0.6*dmgScale(s), 0, CFG.H_MAX);
       if(s.chain >= 3){ s.chain = 0; s.chainTimer = 0; }
       s.events.push({type:"emptypress"});
       if(s.health<=0){ die(s); }
@@ -1636,29 +1646,37 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   /* ---------- particles (capped, short) ---------- */
   var PCAP = 80;
   var parts = [];
+  // Particles are EXPLOSION DEBRIS, not targets. They fly OUT fast and vanish fast,
+  // drawn as short streaks along their travel (never a round dot sitting at a node's
+  // spot — that was reading as a tappable target to a 10y-o playtester). Higher
+  // launch speed + quick decay = the spot a node occupied is empty within ~0.25s.
   function burst(x,y,hex,n,spd,big){
     n = Math.min(n, PCAP - parts.length);
     for(var i=0;i<n;i++){
-      var a = Math.random()*Math.PI*2, v = spd*(0.5+Math.random());
-      parts.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,
-        life:1,decay:0.035+Math.random()*0.03,hex:hex,r:(big?2.2:1.3)+Math.random()*1.2});
+      var a = Math.random()*Math.PI*2, v = spd*(1.0+Math.random()*1.1); // faster -> clears the spot
+      parts.push({x:x,y:y,px:x,py:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,
+        life:1,decay:0.055+Math.random()*0.04,hex:hex,r:(big?1.8:1.1)+Math.random()*0.9});
     }
   }
   function updateParts(dt){
     for(var i=parts.length-1;i>=0;i--){
       var p=parts[i];
-      p.x+=p.vx; p.y+=p.vy; p.vx*=0.94; p.vy*=0.94;
+      p.px=p.x; p.py=p.y;
+      p.x+=p.vx; p.y+=p.vy; p.vx*=0.9; p.vy*=0.9;
       p.life-=p.decay;
       if(p.life<=0) parts.splice(i,1);
     }
   }
   function drawParts(){
     ctx.globalCompositeOperation="lighter";
+    ctx.lineCap="round";
     for(var i=0;i<parts.length;i++){
       var p=parts[i];
-      ctx.globalAlpha=Math.max(0,p.life);
-      ctx.fillStyle=p.hex;
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill();
+      var a=Math.max(0,p.life);
+      ctx.globalAlpha=a*a;                 // fade out steeply so tails don't linger as specks
+      ctx.strokeStyle=p.hex;
+      ctx.lineWidth=p.r*a;                  // thins as it dies
+      ctx.beginPath(); ctx.moveTo(p.px,p.py); ctx.lineTo(p.x,p.y); ctx.stroke();
     }
     ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
   }
@@ -2220,6 +2238,17 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     ctx.fillStyle = G && G.level ? hexFade(bandTint(G.level),0.55) : "rgba(4,6,12,0.55)";
     ctx.fillRect(0,0,W,H);
 
+    // LOW-HP DANGER VIGNETTE: a pulsing red glow creeps in from the screen edges as
+    // health gets low, so peripheral vision warns the player before they die. Makes
+    // death feel earned/telegraphed (the 10y-o "it ends suddenly" complaint).
+    if(G && G.alive && G.health<0.34){
+      var dg=(0.34-G.health)/0.34;                  // 0..1
+      var dv=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.32, W/2,H/2,Math.max(W,H)*0.62);
+      dv.addColorStop(0,"rgba(0,0,0,0)");
+      dv.addColorStop(1,"rgba(255,40,80,"+(0.10+0.16*dg*Math.abs(Math.sin((G.t||0)*7)))+")");
+      ctx.fillStyle=dv; ctx.fillRect(0,0,W,H);
+    }
+
     var kx = kick? (Math.random()*2-1)*kick : 0;
     var ky = kick? (Math.random()*2-1)*kick : 0;
     kick *= 0.82; if(kick<0.4) kick=0;
@@ -2245,6 +2274,34 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     ctx.fillStyle=coreHex; ctx.globalAlpha=0.3+pulse*0.3;
     ctx.shadowBlur=14; ctx.shadowColor=coreHex; ctx.fill();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
+
+    // ---- HEALTH RING around the core: a clear, central life gauge a young player
+    // can't miss (the old 3px top bar was invisible to the 10y-o playtester). The arc
+    // drains clockwise as health falls; it greens->ambers->reds and, when low, PULSES
+    // with a soft red core glow + screen-edge danger vignette so death is telegraphed,
+    // never sudden. Lives at the center where the eye already is.
+    var hp = G.alive ? G.health : 0;
+    var hpR = 32;
+    var danger = hp<0.34 ? (0.34-hp)/0.34 : 0;             // 0..1 how close to death
+    var hpHex = hp>0.5 ? "#39e6ff" : (hp>0.28 ? "#ffc24b" : "#ff4a73");
+    // faint full track
+    ctx.beginPath(); ctx.arc(CX,CY,hpR,0,7);
+    ctx.strokeStyle="rgba(120,150,200,0.16)"; ctx.lineWidth=4; ctx.stroke();
+    // filled arc (from top, clockwise)
+    if(hp>0){
+      var pulseLow = danger>0 ? (0.55+0.45*Math.abs(Math.sin(G.t*7))) : 1;
+      ctx.beginPath();
+      ctx.arc(CX,CY,hpR, -Math.PI/2, -Math.PI/2 + hp*Math.PI*2);
+      ctx.strokeStyle=hpHex; ctx.globalAlpha=pulseLow; ctx.lineWidth=4.5;
+      ctx.lineCap="round";
+      ctx.shadowBlur=7+danger*18; ctx.shadowColor=hpHex; ctx.stroke();
+      ctx.shadowBlur=0; ctx.globalAlpha=1; ctx.lineCap="butt";
+    }
+    // low-HP red core glow (warning the body is failing)
+    if(danger>0){
+      ctx.beginPath(); ctx.arc(CX,CY, coreR+3+danger*4*Math.abs(Math.sin(G.t*7)),0,7);
+      ctx.fillStyle="#ff4a73"; ctx.globalAlpha=0.18*danger; ctx.fill(); ctx.globalAlpha=1;
+    }
 
     // ---- the ONE ring ----
     var rr = Math.max(0, G.ring);
@@ -2295,26 +2352,33 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       // PER-NODE ORBIT HINT: a short faint arc at this node's radius, around the node,
       // so it's clear "the ring will touch this dot when it reaches HERE". Brightens
       // as the ring nears this radius. Kept short (not a full circle) to avoid clutter.
-      var aw = 0.5 + approach*0.5;  // arc half-width in radians
-      ctx.beginPath(); ctx.arc(CX,CY,nr, nd.ang-aw, nd.ang+aw);
-      ctx.strokeStyle=hex; ctx.globalAlpha=0.06 + approach*0.22;
-      ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+      // Now fully fades out when the ring is far, so a waiting node isn't ringed by a
+      // faint arc that a child reads as "a thing to tap".
+      if(approach>0.05){
+        var aw = 0.5 + approach*0.5;  // arc half-width in radians
+        ctx.beginPath(); ctx.arc(CX,CY,nr, nd.ang-aw, nd.ang+aw);
+        ctx.strokeStyle=hex; ctx.globalAlpha=approach*0.26;
+        ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+      }
 
       // GUIDE SPOKE: a faint colored line from center to this node, so the eye is
-      // pulled OUTWARD to where the action is (center is no longer the loudest thing).
-      // It brightens as the ring approaches this node — a directional "incoming" cue.
-      var sg = ctx.createLinearGradient(CX,CY,x,y);
-      sg.addColorStop(0,"rgba(0,0,0,0)");
-      sg.addColorStop(1,hex);
-      ctx.beginPath(); ctx.moveTo(CX,CY); ctx.lineTo(x,y);
-      ctx.strokeStyle=sg; ctx.globalAlpha=0.05 + approach*0.28;
-      ctx.lineWidth=1 + approach*1.5; ctx.stroke(); ctx.globalAlpha=1;
+      // pulled OUTWARD to where the action is. Only drawn as the ring approaches,
+      // so the resting screen stays clean (no permanent spokes = less visual noise).
+      if(approach>0.12){
+        var sg = ctx.createLinearGradient(CX,CY,x,y);
+        sg.addColorStop(0,"rgba(0,0,0,0)");
+        sg.addColorStop(1,hex);
+        ctx.beginPath(); ctx.moveTo(CX,CY); ctx.lineTo(x,y);
+        ctx.strokeStyle=sg; ctx.globalAlpha=(approach-0.12)*0.4;
+        ctx.lineWidth=1 + approach*1.5; ctx.stroke(); ctx.globalAlpha=1;
+      }
 
-      // TARGET PIP: a steady colored ring sitting on the orbit, always visible.
-      // Tells a first-timer "this is a target, and it has a colour" before maturity.
+      // TARGET PIP: a steady colored ring sitting on the orbit. Tells a first-timer
+      // "this is a target" — but only once the ring is on its way in. When idle it is
+      // nearly invisible so leftover/idle dots don't masquerade as actionable targets.
       ctx.beginPath(); ctx.arc(x,y,C.CFG.NODE_R+5,0,7);
-      ctx.strokeStyle=hex; ctx.globalAlpha=0.22 + approach*0.4;
-      ctx.lineWidth=1.5; ctx.shadowBlur=approach*14; ctx.shadowColor=hex;
+      ctx.strokeStyle=hex; ctx.globalAlpha=0.08 + approach*0.5;
+      ctx.lineWidth=1.5; ctx.shadowBlur=approach*16; ctx.shadowColor=hex;
       ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
 
       // decoherence countdown: a thin ring that empties as the node ages.
@@ -2340,16 +2404,27 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       }
 
       // CONVERGING APERTURE: a ring that races in from outside and snaps onto the
-      // dot exactly at the perfect instant. This is the "NOW" signal.
+      // dot exactly at the perfect instant. This is the "NOW" signal — made bold and
+      // unmistakable for a young player. In the last sliver before perfect, a bright
+      // expanding telegraph flares so "press NOW" is impossible to miss.
       if(prox>0){
         var apCol = crit ? "#ffffff" : (greedyLive ? GOLD : nhex);
-        var apR = C.CFG.NODE_R + (1-prox)*36;
+        var apR = C.CFG.NODE_R + (1-prox)*40;
         ctx.beginPath(); ctx.arc(x,y,apR, 0,7);
         ctx.strokeStyle = apCol;
-        ctx.globalAlpha = 0.3 + 0.7*prox;
-        ctx.lineWidth = 1.5 + prox*2.5 + greedyFrac*1.5;
-        ctx.shadowBlur = prox*26 + greedyFrac*16; ctx.shadowColor = apCol;
+        ctx.globalAlpha = 0.4 + 0.6*prox;
+        ctx.lineWidth = 2 + prox*3.5 + greedyFrac*1.5;
+        ctx.shadowBlur = prox*30 + greedyFrac*16; ctx.shadowColor = apCol;
         ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+        // RIPE TELEGRAPH: a second bright ring blooms outward in the final ~30% of the
+        // approach — a clear "it's time" pulse the eye locks onto instantly.
+        if(prox>0.7){
+          var rf=(prox-0.7)/0.3;            // 0..1 across the ripe window
+          ctx.beginPath(); ctx.arc(x,y, C.CFG.NODE_R+6 + (1-rf)*10, 0,7);
+          ctx.strokeStyle = crit?"#ffffff":apCol; ctx.globalAlpha=0.5*rf;
+          ctx.lineWidth=2+rf*2; ctx.shadowBlur=18*rf; ctx.shadowColor=apCol;
+          ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+        }
         // PURE hint: a second faint concentric ring when tone matches the sweep
         if(pure && prox>0.3){
           ctx.beginPath(); ctx.arc(x,y,apR+6,0,7);
@@ -2406,14 +2481,16 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         ctx.globalAlpha=1;
       }
 
-      // core dot — visible & colored even while waiting, blooms as the ring arrives.
+      // core dot — visible & colored even while waiting, BLOOMS hard as the ring arrives
+      // so the dot itself telegraphs "press now" (grows + brightens in the ripe window).
       // Tints gold the moment you're in the greedy window (live risk/reward read).
       var dotHex = greedyLive ? GOLD : nhex;
-      var dotR = C.CFG.NODE_R*(0.58 + prox*0.5) * (isSurge?1.15:1) * (isCharged?1.08:1);
+      var ripeBloom = prox*prox;            // ease-in: stays small until close, then swells
+      var dotR = C.CFG.NODE_R*(0.5 + ripeBloom*0.85) * (isSurge?1.15:1) * (isCharged?1.08:1);
       ctx.beginPath(); ctx.arc(x,y,dotR,0,7);
       ctx.fillStyle = dotHex;
-      ctx.globalAlpha = 0.6 + prox*0.4;
-      ctx.shadowBlur = 8 + prox*24 + greedyFrac*14; ctx.shadowColor = dotHex; ctx.fill();
+      ctx.globalAlpha = 0.5 + prox*0.5;
+      ctx.shadowBlur = 6 + ripeBloom*30 + greedyFrac*14; ctx.shadowColor = dotHex; ctx.fill();
       ctx.shadowBlur=0; ctx.globalAlpha=1;
 
       // flash: white-hot at PERFECT centre; gold-hot when ridden into the greedy band
@@ -2460,20 +2537,55 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     ctx.globalCompositeOperation="source-over";
   }
 
-  /* ---------- tutorial (drawn overlay, 3 quick beats) ---------- */
+  /* ---------- tutorial: WORDLESS visual demo (learn by imitation) ----------
+     A 10-year-old playtester didn't read/understand the text hints. So the tutorial
+     now TEACHES BY SHOWING: a pulsing tap-target sits on the live node and flares
+     bright the instant the ring touches it — "press when it looks like THIS". A tiny
+     one-line caption remains as a backstop, but the pulse is the real teacher. */
   function drawTutorial(){
     if(!tut.on) return;
-    // dim hint text near center top
+    // pick the node to point at (prefer the one the ring is closest to)
+    var nd=null, bestE=1e9;
+    for(var i=0;i<G.nodes.length;i++){
+      var e=C.nodeError(G,G.nodes[i]); if(e<bestE){ bestE=e; nd=G.nodes[i]; }
+    }
     ctx.save();
+    if(nd){
+      var nr=C.nodeRadius(G,nd);
+      var nx=CX+Math.cos(nd.ang)*nr, ny=CY+Math.sin(nd.ang)*nr;
+      var win=C.windowPx(G);
+      var ripe=C.clamp(1-bestE/win,0,1);     // 1 = perfect moment
+      ctx.globalCompositeOperation="lighter";
+      // breathing pulse rings around the node — they tighten as the ring nears, so the
+      // eye learns the rhythm of "incoming -> NOW".
+      var t=G.t||0;
+      for(var k=0;k<3;k++){
+        var ph=((t*0.9+k/3)%1);              // 0..1 expanding
+        var rr=18+ph*40 - ripe*14;
+        ctx.beginPath(); ctx.arc(nx,ny,Math.max(6,rr),0,7);
+        ctx.strokeStyle="#ffffff"; ctx.globalAlpha=(1-ph)*0.5*(0.4+0.6*ripe);
+        ctx.lineWidth=2; ctx.stroke();
+      }
+      // a bright "tap here" dot that flashes hard at the perfect instant
+      ctx.beginPath(); ctx.arc(nx,ny,9+ripe*7,0,7);
+      ctx.fillStyle="#ffffff"; ctx.globalAlpha=0.35+0.6*ripe*ripe;
+      ctx.shadowBlur=10+ripe*26; ctx.shadowColor="#ffffff"; ctx.fill();
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
+      // "ЖМИ!" pops only at the perfect window (a single word, even a non-reader maps
+      // it to the flash) — disappears otherwise so it's not a wall of text.
+      if(ripe>0.7){
+        ctx.globalCompositeOperation="source-over";
+        ctx.textAlign="center"; ctx.fillStyle="#ffffff";
+        ctx.font="700 20px Segoe UI, sans-serif"; ctx.globalAlpha=(ripe-0.7)/0.3;
+        ctx.fillText("ЖМИ!", nx, ny-30);
+        ctx.globalAlpha=1;
+      }
+    }
+    // tiny persistent caption (backstop only) — short, low, out of the way
     ctx.globalCompositeOperation="source-over";
-    ctx.textAlign="center"; ctx.fillStyle="rgba(159,194,230,0.92)";
-    ctx.font="600 18px Segoe UI, sans-serif";
-    var msg = tut.step===0 ? "Кольцо расходится из центра…"
-            : tut.step===1 ? "Точка загорается, когда кольцо близко"
-            : "ЖМИ Space или по точке в этот миг →";
-    ctx.fillText(msg, CX, CY - edgeR*0.55);
-    ctx.font="13px Segoe UI, sans-serif"; ctx.fillStyle="rgba(90,116,148,0.8)";
-    ctx.fillText("(нажми что угодно, чтобы продолжить)", CX, CY - edgeR*0.55 + 26);
+    ctx.textAlign="center"; ctx.fillStyle="rgba(159,194,230,0.7)";
+    ctx.font="500 14px Segoe UI, sans-serif";
+    ctx.fillText("жми по белой вспышке  ·  нажми, чтобы продолжить", CX, CY + edgeR*0.62);
     ctx.restore();
   }
 
@@ -2542,6 +2654,11 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   function handlePress(clientX, clientY){
     if(!running || !G) return;
     if(tut.on){
+      // A tap during the tutorial attempts a REAL lock — so a well-timed press gives the
+      // satisfying pop + chord (teach by reward, not just by advancing a counter). The
+      // step still advances on every press so the demo always moves forward.
+      C.pressSpace(G);
+      consumeEvents();
       tut.step++;
       if(tut.step>=3){
         tut.on=false; taught=true; localStorage.setItem("phase6_taught","1");

@@ -219,6 +219,16 @@ var PhaseCore = (function(){
     return h;
   }
   function refillGap(s){ return lvlFloor(CFG.REFILL, CFG.REFILL_FLOOR, 0.03, s.level); }
+  // EARLY-GAME FORGIVENESS: scales DOWN health damage in the first levels so a learning
+  // player (the 10y-o playtest: "ends too fast, can't beat 15k") lives long enough for
+  // the score to climb before difficulty bites. ~0.45x at L1 -> 1.0x by L8, then full.
+  // High-level stakes (where skilled players actually live) are untouched -> calibration
+  // of mash-death / idle-death / the perfect-bot ceiling at high levels is preserved.
+  function dmgScale(s){
+    var L = s.level||1;
+    if(L>=8) return 1;
+    return 0.45 + 0.55*((L-1)/7);
+  }
   // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
   function targetNodes(s){
     var t = CFG.TARGET_NODES + Math.floor((s.level-1)/4); // 2 early, 3 from level 5+
@@ -378,7 +388,7 @@ var PhaseCore = (function(){
         s.nodes.splice(i,1);
         s.stats.decohered++;
         s.chain = 0; s.chainTimer = 0;
-        s.health = clamp(s.health - CFG.H_HIT, 0, CFG.H_MAX);
+        s.health = clamp(s.health - CFG.H_HIT*dmgScale(s), 0, CFG.H_MAX);
         s.events.push({type:"decohere", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone});
         if(s.health<=0){ die(s); return; }
       }
@@ -468,7 +478,7 @@ var PhaseCore = (function(){
         return {result:"keepersave", chain:s.chain};
       }
       s.chain = 0; s.chainTimer = 0; s.greedyRun = 0;
-      s.health = clamp(s.health - CFG.H_MISTAP, 0, CFG.H_MAX);
+      s.health = clamp(s.health - CFG.H_MISTAP*dmgScale(s), 0, CFG.H_MAX);
       s.stats.miss++;
       s.events.push({type:"miss", ang:nd.ang, rFrac:nd.rFrac});
       if(s.health<=0){ die(s); }
@@ -605,7 +615,7 @@ var PhaseCore = (function(){
     var idx = bestNode(s);
     if(idx < 0){
       // space in empty space -> tiny penalty (anti-mash), softer than a real miss
-      s.health = clamp(s.health - CFG.H_MISTAP*0.6, 0, CFG.H_MAX);
+      s.health = clamp(s.health - CFG.H_MISTAP*0.6*dmgScale(s), 0, CFG.H_MAX);
       if(s.chain >= 3){ s.chain = 0; s.chainTimer = 0; }
       s.events.push({type:"emptypress"});
       if(s.health<=0){ die(s); }
@@ -645,7 +655,7 @@ var PhaseCore = (function(){
     }
     if(pick < 0) pick = bestNode(s);
     if(pick < 0){
-      s.health = clamp(s.health - CFG.H_MISTAP*0.6, 0, CFG.H_MAX);
+      s.health = clamp(s.health - CFG.H_MISTAP*0.6*dmgScale(s), 0, CFG.H_MAX);
       if(s.chain >= 3){ s.chain = 0; s.chainTimer = 0; }
       s.events.push({type:"emptypress"});
       if(s.health<=0){ die(s); }
