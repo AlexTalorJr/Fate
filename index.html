@@ -1497,7 +1497,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   function musicReschedule(){
     if(musicTimer){ clearInterval(musicTimer); musicTimer=null; }
     if(!musicOn||!AC) return;
-    var ms = (running && G) ? Math.max(220, beatLen(G)*1000) : 1400;
+    var ms = (running && G) ? Math.max(220, C.beatLen(G)*1000) : 1400;
     musicTimer = setInterval(musicPulse, ms);
   }
   function musicStart(){
