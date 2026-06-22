@@ -1401,32 +1401,54 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   function thud(){ tone(70,0.16,"sine",0.4); }
   function tick(){ tone(180,0.05,"sine",0.05); }
 
-  /* ---------- v15 REACTIVE procedural music ----------
-     Not an audio file. A living soundtrack that tracks the game state instead of
-     looping blindly. Four reactive axes (see Notion):
-       • chain  -> intensity: more voices, brighter filter, denser arps as the
-                   chain climbs; a broken chain sags back down.
-       • level  -> each level-up nudges intensity + adds shimmer.
-       • surge  -> a "drop": filter opens, bass thickens, arps double-time.
-       • health -> low HP darkens/detunes the pad (audible danger warning).
-     The pulse is driven by the game's `beat` EVENT (sample-locked to the ring),
-     not a drifting setInterval; on the start screen a gentle interval idles it.
-     Everything moves via smooth ramps so it never jumps in volume. Rides on its
-     own gain bus (musicGain) so the slider is independent of SFX. */
-  var musicGain=null, musicOn=true, musicVol=0.5, musicNodes=[], musicTimer=null, musicDuck=1;
-  var musicPad=null;            // {lp, padGain, voices:[...], lfo...} live handles for modulation
-  var musicIntensity=0;         // 0..1 smoothed, drives brightness/density
-  var musicSurge=0;             // 0..1 smoothed surge weight
-  var musicDanger=0;            // 0..1 smoothed low-health weight
-  var musicStep=0, musicLastLevel=1;
+  /* ---------- v16 HARD-ROCK engine ----------
+     Fast, aggressive, loud. Pure WebAudio, no samples. Built from:
+       • Distorted guitar  — sawtooth -> WaveShaper (hard clip) -> cabinet lowpass.
+                             Power chords (root + fifth + octave), palm-mute chug.
+       • Bass guitar       — saw an octave below the chord root, lightly driven.
+       • Drum kit          — kick (pitch-dropping sine), snare (noise + body),
+                             hihat (filtered noise) on the offbeats.
+       • Lead              — octave-up riff that kicks in as the chain builds and
+                             goes double-time / soloing during a surge.
+     A self-clocking lookahead scheduler chugs eighth-notes across each ring beat
+     (sixteenths on surge = "fast & aggressive"). Reacts to game state:
+       chain  -> drive + lead riff + busier drums
+       surge  -> double-time, crash, lead octave, fattest tone
+       health -> low HP drops to a tense palm-muted single chug (danger)
+     Rides its own gain bus through a compressor so it stays punchy and loud
+     without clipping; the slider is independent of SFX. */
+  var musicGain=null, musicComp=null, musicShaper=null, musicCab=null, musicBassShaper=null;
+  var musicOn=true, musicVol=0.5, musicNodes=[], musicTimer=null, musicDuck=1;
+  var musicIntensity=0, musicSurge=0, musicDanger=0;
+  var musicBeatLen=0.5;         // seconds per ring-beat ("bar"), updated live
+  var musicSchedTimer=null, musicNextTime=0, musicSubStep=0, musicProgStep=0;
+
   function musicPrefsLoad(){
     var mo=store.get("musicOn"); musicOn = (mo===null) ? true : (mo==="1");
     var mv=store.get("musicVol"); musicVol = (mv===null) ? 0.5 : Math.max(0,Math.min(1,parseFloat(mv)));
   }
-  function musicTargetGain(){ return musicOn ? (0.18*musicVol*musicDuck) : 0; }
+  // hard rock should be LOUD: higher base gain, compressor keeps it from clipping
+  function musicTargetGain(){ return musicOn ? (0.42*musicVol*musicDuck) : 0; }
+  function _distCurve(amount){
+    var n=1024, c=new Float32Array(n), k=amount||50;
+    for(var i=0;i<n;i++){ var x=i*2/n-1; c[i]=(1+k)*x/(1+k*Math.abs(x)); } // soft-to-hard clip
+    return c;
+  }
   function musicEnsureBus(){
     if(!AC) return;
-    if(!musicGain){ musicGain = AC.createGain(); musicGain.gain.value = 0; musicGain.connect(master); }
+    if(musicGain) return;
+    musicGain = AC.createGain(); musicGain.gain.value = 0;
+    musicComp = AC.createDynamicsCompressor();
+    musicComp.threshold.value=-18; musicComp.knee.value=8; musicComp.ratio.value=6;
+    musicComp.attack.value=0.003; musicComp.release.value=0.18;
+    musicGain.connect(musicComp); musicComp.connect(master);
+    // shared guitar chain: shaper -> cabinet lowpass -> bus
+    musicShaper = AC.createWaveShaper(); musicShaper.curve=_distCurve(60); musicShaper.oversample="4x";
+    musicCab = AC.createBiquadFilter(); musicCab.type="lowpass"; musicCab.frequency.value=2600; musicCab.Q.value=0.6;
+    musicShaper.connect(musicCab); musicCab.connect(musicGain);
+    // bass chain: lighter drive straight to bus
+    musicBassShaper = AC.createWaveShaper(); musicBassShaper.curve=_distCurve(18); musicBassShaper.oversample="2x";
+    musicBassShaper.connect(musicGain);
   }
   function musicApplyGain(ramp){
     if(!musicGain||!AC) return;
@@ -1436,140 +1458,170 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     musicGain.gain.linearRampToValueAtTime(tg, t+(ramp||0.4));
   }
   function musicDuckFor(ms){
-    musicDuck=0.35; musicApplyGain(0.08);
-    setTimeout(function(){ musicDuck=1; musicApplyGain(0.6); }, ms||500);
+    musicDuck=0.4; musicApplyGain(0.06);
+    setTimeout(function(){ musicDuck=1; musicApplyGain(0.4); }, ms||500);
   }
-  function musicScale(){
-    var off = 0;
+  // theme-keyed root note (low, for heaviness): E1-ish base transposed by theme
+  function musicRoot(){
+    var off=0;
     if(activeTheme==="amber") off=5; else if(activeTheme==="violet") off=7;
     else if(activeTheme==="magenta") off=3;
-    var base=130.81; // C3
-    var semis=[0,3,5,7,10,12,15]; // airy minor-pentatonic
-    return semis.map(function(s){ return base*Math.pow(2,(s+off)/12); });
+    return 55.0*Math.pow(2,off/12); // A1 base, low and heavy
   }
-  function musicStartDrone(){
-    if(!AC||!musicGain) return;
-    musicStopNodes();
-    var scale=musicScale(), root=scale[0];
-    var lp=AC.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=420; lp.Q.value=0.8;
-    lp.connect(musicGain);
-    var padGain=AC.createGain(); padGain.gain.value=0.42; padGain.connect(lp);
-    var voices=[];
-    [root*0.5, root, root*1.5].forEach(function(f,i){
-      var o=AC.createOscillator(); o.type=i===0?"sine":"sawtooth";
-      o.frequency.value=f; o.detune.value=(i-1)*6;
-      var g=AC.createGain(); g.gain.value=i===0?0.5:0.26;
-      o.connect(g); g.connect(padGain); o.start();
-      voices.push({o:o,g:g,base:f}); musicNodes.push(o,g);
+  // a driving minor progression in semitone offsets from root (i - VI - VII - i)
+  var MUSIC_PROG=[0, 8, 10, 0, 0, 5, 10, 8];
+  function musicChugChord(t, rootHz, amp, dur, bright){
+    // power chord: root + fifth + octave, through the shared distortion chain
+    [0,7,12].forEach(function(semi,i){
+      var o=AC.createOscillator(); o.type="sawtooth";
+      o.frequency.value=rootHz*Math.pow(2,semi/12);
+      var g=AC.createGain();
+      var a=amp*(i===0?1:(i===1?0.7:0.5));
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.linearRampToValueAtTime(a,t+0.004);          // hard pick attack
+      g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      o.connect(g); g.connect(musicShaper);
+      o.start(t); o.stop(t+dur+0.02);
     });
-    // a 4th "shimmer" voice that only fades in at high intensity
-    var sh=AC.createOscillator(); sh.type="triangle"; sh.frequency.value=root*3.005; sh.detune.value=4;
-    var shG=AC.createGain(); shG.gain.value=0.0; sh.connect(shG); shG.connect(padGain); sh.start();
-    musicNodes.push(sh,shG);
-    // slow filter LFO for gentle movement
-    var lfo=AC.createOscillator(); lfo.frequency.value=0.06;
-    var lfoG=AC.createGain(); lfoG.gain.value=120;
-    lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start();
-    musicNodes.push(lfo,lfoG,lp,padGain);
-    musicPad={lp:lp, padGain:padGain, voices:voices, shimmer:shG, root:root};
+    // bass under the chord
+    var bo=AC.createOscillator(); bo.type="sawtooth"; bo.frequency.value=rootHz*0.5;
+    var bg=AC.createGain(); bg.gain.setValueAtTime(0.0001,t);
+    bg.gain.linearRampToValueAtTime(amp*0.9,t+0.005);
+    bg.gain.exponentialRampToValueAtTime(0.0001,t+dur*1.1);
+    bo.connect(bg); bg.connect(musicBassShaper); bo.start(t); bo.stop(t+dur*1.1+0.02);
+  }
+  function musicLead(t, rootHz, deg, amp){
+    var semis=[0,3,5,7,10,12,14,15];
+    var o=AC.createOscillator(); o.type="square";
+    o.frequency.value=rootHz*4*Math.pow(2,semis[deg%semis.length]/12);
+    var g=AC.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(amp,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+    o.connect(g); g.connect(musicShaper); o.start(t); o.stop(t+0.2);
+  }
+  function musicKick(t,amp){
+    var o=AC.createOscillator(); o.type="sine";
+    o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(45,t+0.09);
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
+    o.connect(g); g.connect(musicGain); o.start(t); o.stop(t+0.18);
+  }
+  function _noiseBuf(){
+    if(musicEnsureBus._nb) return musicEnsureBus._nb;
+    var n=AC.sampleRate*0.3, buf=AC.createBuffer(1,n,AC.sampleRate), d=buf.getChannelData(0);
+    for(var i=0;i<n;i++) d[i]=Math.random()*2-1;
+    musicEnsureBus._nb=buf; return buf;
+  }
+  function musicSnare(t,amp){
+    var s=AC.createBufferSource(); s.buffer=_noiseBuf();
+    var bp=AC.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1800; bp.Q.value=0.8;
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.14);
+    s.connect(bp); bp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+0.16);
+    // body
+    var o=AC.createOscillator(); o.type="triangle"; o.frequency.setValueAtTime(190,t);
+    var og=AC.createGain(); og.gain.setValueAtTime(amp*0.5,t); og.gain.exponentialRampToValueAtTime(0.0001,t+0.1);
+    o.connect(og); og.connect(musicGain); o.start(t); o.stop(t+0.12);
+  }
+  function musicHat(t,amp,open){
+    var s=AC.createBufferSource(); s.buffer=_noiseBuf();
+    var hp=AC.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=7000;
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+(open?0.12:0.04));
+    s.connect(hp); hp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+(open?0.14:0.06));
+  }
+  function musicCrash(t,amp){
+    var s=AC.createBufferSource(); s.buffer=_noiseBuf();
+    var hp=AC.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=5000;
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.6);
+    s.connect(hp); hp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+0.65);
+  }
+
+  // Schedule one "bar" (= one ring beat) of rock at absolute time t0, length bl.
+  function musicScheduleBar(t0, bl){
+    if(!AC||!musicGain||!musicOn) return;
+    var I=musicIntensity, S=musicSurge, D=musicDanger;
+    var root=musicRoot()*Math.pow(2, MUSIC_PROG[musicProgStep%MUSIC_PROG.length]/12);
+    musicProgStep++;
+    var subdiv = S>0.5 ? 4 : 2;                 // eighths normally, sixteenths on surge (fast)
+    var n = Math.max(2, Math.round(subdiv*2));  // chugs per bar (4 normal, 8 surge)
+    var step = bl/n;
+    var chugDur = step*(D>0.5?0.5:0.85);        // palm-mute (shorter) when in danger
+    var chugAmp = (D>0.5? 0.5 : 0.78) + S*0.2;  // tone fattens on surge
+    // open the cabinet brighter as intensity/surge rise (more aggression)
+    if(musicCab){ musicCab.frequency.setTargetAtTime(1800 + I*1600 + S*2200 - D*400, t0, 0.1); }
+    for(var i=0;i<n;i++){
+      var t=t0+i*step;
+      // guitar chug every step (the driving engine)
+      musicChugChord(t, root, chugAmp, chugDur, I);
+      // drums: kick on the downbeats, snare on the backbeat, hats on offbeats
+      var half=n/2;
+      if(i===0 || i===half) musicKick(t, 0.9);
+      if(i===Math.floor(half/2) || i===Math.floor(half+half/2)) musicKick(t,0.7); // double-kick feel
+      if(i===half) musicSnare(t, 0.85);
+      if(n>=4 && i===n-1 && (I>0.4||S>0.5)) musicSnare(t,0.6);                     // fill on busy bars
+      musicHat(t, 0.18 + S*0.1, S>0.5 && i%2===1);
+      // lead riff: builds in with chain, solos on surge
+      if(S>0.5){ musicLead(t, root, musicSubStep+i, 0.28); }
+      else if(I>0.45 && i%2===0){ musicLead(t, root, musicSubStep, 0.2*I); }
+    }
+    if(S>0.5 && musicProgStep%2===0) musicCrash(t0, 0.4);  // crash at bar starts during surge
+    musicSubStep++;
+  }
+
+  // Lookahead scheduler (start-screen idle groove). In-game, musicOnBeat drives bars.
+  function _idleScheduler(){
+    if(!AC||!musicOn||running){ return; }
+    var ahead=0.3;
+    while(musicNextTime < AC.currentTime + ahead){
+      musicScheduleBar(musicNextTime, musicBeatLen);
+      musicNextTime += musicBeatLen;
+    }
+    musicSchedTimer=setTimeout(_idleScheduler, 60);
+  }
+
+  function musicUpdate(g){
+    if(!AC||!musicOn) return;
+    var chainW = g ? Math.min(1, g.chain/12) : 0;
+    var surgeW = (g && g.surge>0) ? 1 : 0;
+    var hpW    = g ? Math.max(0, 1 - g.health/C.CFG.H_MAX) : 0;
+    musicIntensity += ((running?chainW:0) - musicIntensity)*0.10;
+    musicSurge     += (surgeW - musicSurge)*0.18;
+    musicDanger    += ((running?hpW:0) - musicDanger)*0.06;
+    if(running && g) musicBeatLen = Math.max(0.18, C.beatLen(g)); // bar length tracks ring
+  }
+  // Each ring beat = one bar, scheduled slightly ahead for tight timing.
+  function musicOnBeat(){
+    if(!running||!musicOn||!AC) return;
+    var t=AC.currentTime+0.02;
+    musicScheduleBar(t, musicBeatLen);
+  }
+  function musicRelax(){
+    musicIntensity=0; musicSurge=0; musicDanger=0;
+    if(musicCab && AC) musicCab.frequency.setTargetAtTime(2200, AC.currentTime, 0.4);
+  }
+  function musicReschedule(){
+    if(musicSchedTimer){ clearTimeout(musicSchedTimer); musicSchedTimer=null; }
+    if(!musicOn||!AC) return;
+    if(!running){
+      musicBeatLen=0.5;                          // ~120bpm menu groove (driving)
+      musicNextTime=AC.currentTime+0.1;
+      _idleScheduler();
+    }
+    // in-game: musicOnBeat handles scheduling, no timer needed
   }
   function musicStopNodes(){
     musicNodes.forEach(function(n){ try{ if(n.stop) n.stop(); }catch(e){} try{ n.disconnect(); }catch(e){} });
-    musicNodes=[]; musicPad=null;
-  }
-  // Per-frame: read the live game state and steer the pad. Called from loop().
-  function musicUpdate(g){
-    if(!AC||!musicPad||!musicOn) return;
-    var t=AC.currentTime;
-    // targets from game state
-    var chainW = g ? Math.min(1, g.chain/14) : 0;            // chain drives brightness/density
-    var surgeW = (g && g.surge>0) ? 1 : 0;                   // surge => drop
-    var hpW    = g ? Math.max(0, 1 - g.health/C.CFG.H_MAX) : 0; // low HP => danger
-    // smooth toward targets (simple one-pole)
-    musicIntensity += ((running?chainW:0) - musicIntensity)*0.08;
-    musicSurge     += (surgeW - musicSurge)*0.12;
-    musicDanger    += ((running?hpW:0) - musicDanger)*0.06;
-    var I=musicIntensity, S=musicSurge, D=musicDanger;
-    // filter cutoff: base climbs with intensity, opens wide on surge, drops in danger
-    var cut = 360 + I*900 + S*1400 - D*160;
-    musicPad.lp.frequency.setTargetAtTime(Math.max(180,cut), t, 0.15);
-    musicPad.lp.Q.setTargetAtTime(0.8 + S*2.2, t, 0.2);
-    // pad swells slightly with intensity/surge
-    musicPad.padGain.gain.setTargetAtTime(0.42 + I*0.12 + S*0.18, t, 0.2);
-    // shimmer voice fades in with intensity
-    musicPad.shimmer.gain.setTargetAtTime(Math.min(0.16, I*0.18 + S*0.06), t, 0.25);
-    // danger: detune the saw voices for an uneasy beating
-    musicPad.voices.forEach(function(v,i){
-      if(i>0) v.o.detune.setTargetAtTime((i-1)*6 - D*22, t, 0.2);
-    });
-    // surge thickens the whole bus a touch louder (still ramped)
-    musicDuck = 1; // surge handled via gains, not duck
-  }
-  // One beat of rhythm, called from the `beat` game event (sample-locked) or idle interval.
-  function musicBeat(){
-    if(!AC||!musicGain||!musicOn) return;
-    var scale=musicScale(), t=AC.currentTime;
-    var I=musicIntensity, S=musicSurge;
-    // sub-bass pulse — louder/tighter on surge
-    var o=AC.createOscillator(), g=AC.createGain();
-    o.type="sine"; o.frequency.value=scale[0]*0.5;
-    var bAmp=0.42 + S*0.3;
-    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(bAmp,t+0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+(S?0.4:0.5));
-    o.connect(g); g.connect(musicGain); o.start(t); o.stop(t+0.55);
-    // arpeggio density scales with intensity + surge:
-    //   calm: every 2nd beat · busy: every beat · surge: two notes per beat
-    var doArp = S>0.5 ? true : (I>0.45 ? true : (musicStep%2===0));
-    if(doArp){
-      var deg = 1 + (musicStep + (I>0.7?2:0)) % (scale.length-1);
-      var n = scale[deg];
-      var aAmp = 0.12 + I*0.06 + S*0.06;
-      var mkNote=function(freq, when, amp){
-        var o2=AC.createOscillator(), g2=AC.createGain();
-        o2.type="triangle"; o2.frequency.value=freq;
-        g2.gain.setValueAtTime(0,when); g2.gain.linearRampToValueAtTime(amp,when+0.02);
-        g2.gain.exponentialRampToValueAtTime(0.0001,when+0.8);
-        o2.connect(g2); g2.connect(musicGain); o2.start(when); o2.stop(when+0.85);
-      };
-      mkNote(n*2, t, aAmp);
-      if(S>0.5){ mkNote(scale[(deg+2)%(scale.length-1)+1]*2, t+0.13, aAmp*0.8); } // surge: extra offbeat note
-    }
-    musicStep++;
-  }
-  // External hook: the game loop calls this on each `beat` event so the pulse is
-  // locked to the ring. Falls back to the idle interval when not running.
-  function musicOnBeat(){ if(running && musicOn) musicBeat(); }
-  // Ramp the pad back to its calm idle voicing (called when a run ends).
-  function musicRelax(){
-    musicIntensity=0; musicSurge=0; musicDanger=0;
-    if(AC && musicPad){
-      var t=AC.currentTime;
-      musicPad.lp.frequency.setTargetAtTime(420, t, 0.5);
-      musicPad.lp.Q.setTargetAtTime(0.8, t, 0.4);
-      musicPad.padGain.gain.setTargetAtTime(0.42, t, 0.5);
-      musicPad.shimmer.gain.setTargetAtTime(0.0, t, 0.5);
-      musicPad.voices.forEach(function(v,i){ if(i>0) v.o.detune.setTargetAtTime((i-1)*6, t, 0.4); });
-    }
-  }
-  function musicReschedule(){
-    if(musicTimer){ clearInterval(musicTimer); musicTimer=null; }
-    if(!musicOn||!AC) return;
-    // Only the START screen needs a timer; in-game the beat event drives musicBeat().
-    if(!running){ musicTimer = setInterval(musicBeat, 1400); }
+    musicNodes=[];
   }
   function musicStart(){
     audioInit(); if(!AC) return;
     musicEnsureBus();
     if(AC.state==="suspended") AC.resume();
-    musicStartDrone();
-    musicIntensity=0; musicSurge=0; musicDanger=0; musicStep=0;
-    musicApplyGain(0.8);
+    musicIntensity=0; musicSurge=0; musicDanger=0; musicSubStep=0; musicProgStep=0;
+    musicApplyGain(0.5);
     musicReschedule();
   }
   function musicStop(){
-    if(musicTimer){ clearInterval(musicTimer); musicTimer=null; }
-    musicApplyGain(0.3);
-    setTimeout(musicStopNodes, 400);
+    if(musicSchedTimer){ clearTimeout(musicSchedTimer); musicSchedTimer=null; }
+    musicApplyGain(0.25);
   }
   function musicSetOn(v){
     musicOn=!!v; store.set("musicOn", musicOn?"1":"0");
@@ -1579,6 +1631,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     musicVol=Math.max(0,Math.min(1,v)); store.set("musicVol", String(musicVol));
     musicApplyGain(0.15);
   }
+
 
   /* ---------- particles (capped, short) ---------- */
   var PCAP = 80;
