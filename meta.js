@@ -159,6 +159,33 @@ var PhaseMeta = (function(){
   function glyphNormalize(s){ return String(s||"").toUpperCase().replace(/[^A-Z]/g,""); }
   function glyphCheck(guess){ return glyphNormalize(guess)===GLYPH_WORD; }
 
+  /* ---------- v13: prize / proof-of-arrival code ---------- */
+  var PRIZE_SALT = "phase.resonance.v13";
+  var B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  function _fnv(str){
+    var h = 0x811c9dc5;
+    for(var i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return h>>>0;
+  }
+  function _b32(n, len){
+    var s="";
+    for(var i=0;i<len;i++){ s = B32.charAt(n & 31) + s; n = Math.floor(n/32); }
+    return s;
+  }
+  function prizeCode(decodeDay){
+    var basis = GLYPH_WORD + "|" + (decodeDay|0) + "|" + PRIZE_SALT;
+    var h1 = _fnv(basis);
+    var h2 = _fnv(basis + "|x" + h1);
+    return "RES-" + _b32(h1,4) + "-" + _b32(h2,4);
+  }
+  function prizeVerify(code, fromDay, toDay){
+    var norm = String(code||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+    for(var d=fromDay; d<=toDay; d++){
+      if(prizeCode(d).replace(/[^A-Z0-9]/g,"")===norm) return d;
+    }
+    return null;
+  }
+
   return {
     _mulberry:mulberry, dailyField:dailyField, standings:standings,
     passedBetween:passedBetween, sessionGoal:sessionGoal, goalProgress:goalProgress,
@@ -167,6 +194,7 @@ var PhaseMeta = (function(){
     GLYPH_WORD:GLYPH_WORD, GLYPH_FULL_LEVEL:GLYPH_FULL_LEVEL,
     glyphCells:glyphCells, glyphLitTotal:glyphLitTotal, glyphRevealed:glyphRevealed,
     glyphFrac:glyphFrac, glyphNormalize:glyphNormalize, glyphCheck:glyphCheck,
+    prizeCode:prizeCode, prizeVerify:prizeVerify,
     today:function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
   };
 })();

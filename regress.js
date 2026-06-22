@@ -552,6 +552,17 @@ function nodeAt(s, signedErr, tone){
   var gc=M.glyphCells();
   ok(gc.rows===7, "glyph grid is 7 rows tall");
   ok(gc.cols===9*6-1, "glyph grid width = letters*6-1");
+
+  // v13 prize / proof-of-arrival code
+  var c1=M.prizeCode(20100), c1b=M.prizeCode(20100), c2=M.prizeCode(20101);
+  ok(c1===c1b, "prize code is deterministic for a given day");
+  ok(c1!==c2, "prize code differs across arrival days");
+  ok(/^RES-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/.test(c1), "prize code matches RES-XXXX-XXXX (Crockford)");
+  ok(c1.indexOf("I")<0 && c1.indexOf("L")<0 && c1.indexOf("O")<0 && c1.indexOf("U")<0, "prize code avoids ambiguous letters");
+  ok(M.prizeVerify(c1, 20095, 20105)===20100, "author can verify a real code within window");
+  ok(M.prizeVerify(c1.toLowerCase().replace(/-/g,' '), 20095, 20105)===20100, "verify is case/format tolerant");
+  ok(M.prizeVerify("RES-0000-0000", 20095, 20105)===null, "a fabricated code does not verify");
+  ok(M.prizeVerify(c2, 20095, 20099)===null, "code outside the scanned window does not verify");
 })();
 
 // summary

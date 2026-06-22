@@ -148,6 +148,22 @@
   .tgl .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
     background:#cfe9ff;transition:.18s;}
   .tgl.on .knob{left:22px;background:#eafdff;}
+  .prizePanel{margin-top:18px;width:min(360px,86vw);padding:16px 18px;
+    background:rgba(255,194,75,.05);border:1px solid rgba(255,194,75,.28);
+    border-radius:16px;text-align:center;}
+  .prizeTitle{color:var(--amber);font-size:14px;letter-spacing:.04em;font-weight:600;
+    text-shadow:0 0 10px rgba(255,194,75,.35);}
+  .prizeBody{margin-top:8px;font-size:12px;line-height:1.5;color:#bfe0ff;opacity:.85;}
+  .prizeCodeRow{margin-top:14px;display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap;}
+  #prizeCode{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:18px;letter-spacing:.12em;
+    color:var(--ink);background:rgba(8,14,28,.65);border:1px solid rgba(120,150,200,.24);
+    border-radius:10px;padding:8px 14px;}
+  .prizeCodeRow .btn.sub{margin-top:0;padding:9px 16px;}
+  .prizeContact{display:inline-block;margin-top:12px;font-size:13px;color:var(--cyan);
+    text-decoration:none;letter-spacing:.03em;border-bottom:1px solid rgba(57,230,255,.3);padding-bottom:1px;}
+  .prizeContact:hover{color:#7ff0ff;}
+  .crown{color:var(--amber);font-size:.82em;
+    text-shadow:0 0 8px rgba(255,194,75,.6);vertical-align:baseline;}
   .hidden{display:none!important;}
   .title{font-size:clamp(56px,17vw,150px);font-weight:100;letter-spacing:.34em;
     line-height:1.02;margin-right:-.34em;
@@ -339,7 +355,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v12</div>
+    <div class="verBanner">PHASE · v13</div>
   </div>
 
   <!-- DECODE -->
@@ -364,6 +380,15 @@
     <div id="endScore">0</div>
     <div id="endLine"></div>
     <div id="overtake"></div>
+    <div id="prizePanel" class="prizePanel hidden">
+      <div class="prizeTitle">◆ Ты дошёл до конца надписи</div>
+      <div class="prizeBody">Это твой код доказательства. Покажи его автору — он подтвердит, что ты прошёл по-настоящему.</div>
+      <div class="prizeCodeRow">
+        <code id="prizeCode">RES-XXXX-XXXX</code>
+        <button id="prizeCopy" class="btn sub">Копировать</button>
+      </div>
+      <a id="prizeContact" class="prizeContact" href="https://github.com/AlexTalorJr" target="_blank" rel="noopener">github.com/AlexTalorJr →</a>
+    </div>
     <div class="board" id="endBoard">
       <div class="boardHead">РЕЙТИНГ</div>
       <div id="endBoardList"></div>
@@ -1256,6 +1281,33 @@ var PhaseMeta = (function(){
   function glyphNormalize(s){ return String(s||"").toUpperCase().replace(/[^A-Z]/g,""); }
   function glyphCheck(guess){ return glyphNormalize(guess)===GLYPH_WORD; }
 
+  /* ---------- v13: prize / proof-of-arrival code ---------- */
+  var PRIZE_SALT = "phase.resonance.v13";
+  var B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  function _fnv(str){
+    var h = 0x811c9dc5;
+    for(var i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return h>>>0;
+  }
+  function _b32(n, len){
+    var s="";
+    for(var i=0;i<len;i++){ s = B32.charAt(n & 31) + s; n = Math.floor(n/32); }
+    return s;
+  }
+  function prizeCode(decodeDay){
+    var basis = GLYPH_WORD + "|" + (decodeDay|0) + "|" + PRIZE_SALT;
+    var h1 = _fnv(basis);
+    var h2 = _fnv(basis + "|x" + h1);
+    return "RES-" + _b32(h1,4) + "-" + _b32(h2,4);
+  }
+  function prizeVerify(code, fromDay, toDay){
+    var norm = String(code||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+    for(var d=fromDay; d<=toDay; d++){
+      if(prizeCode(d).replace(/[^A-Z0-9]/g,"")===norm) return d;
+    }
+    return null;
+  }
+
   return {
     _mulberry:mulberry, dailyField:dailyField, standings:standings,
     passedBetween:passedBetween, sessionGoal:sessionGoal, goalProgress:goalProgress,
@@ -1264,6 +1316,7 @@ var PhaseMeta = (function(){
     GLYPH_WORD:GLYPH_WORD, GLYPH_FULL_LEVEL:GLYPH_FULL_LEVEL,
     glyphCells:glyphCells, glyphLitTotal:glyphLitTotal, glyphRevealed:glyphRevealed,
     glyphFrac:glyphFrac, glyphNormalize:glyphNormalize, glyphCheck:glyphCheck,
+    prizeCode:prizeCode, prizeVerify:prizeVerify,
     today:function(){var d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
   };
 })();
@@ -1469,7 +1522,9 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
      The decode screen unlocks once enough of the word is etched to be guessable. */
   var GLYPH_DECODE_GATE = 0.42;          // ~42% of pixels (~L85) before the decode UI appears
   function isDecoded(){ return store.get("decoded")==="1"; }
-  function setDecoded(){ store.set("decoded","1"); }
+  function setDecoded(){ store.set("decoded","1"); if(!store.get("decodeDay")) store.set("decodeDay", String(M.today())); }
+  function decodeDay(){ return +(store.get("decodeDay")||M.today()); }
+  function myPrizeCode(){ return M.prizeCode(decodeDay()); }
   function mirrorOn(){ return store.get("mirrorOn")==="1"; }
   function setMirror(v){ store.set("mirrorOn", v?"1":"0"); }
   function glyphFracNow(){ return M.glyphFrac(maxLevelReached()); }
@@ -1492,10 +1547,11 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         if(prev!==-1 && i>prev+1){ rows.push('<div class="row" style="opacity:.4;justify-content:center;color:#5a7494;font-size:12px">···</div>'); }
         var r=list[i];
         var cls = "row"+(r.me?" me":"")+(i===0?" gold":"")+(flashName&&r.name===flashName?" justpassed":"");
+        var crown = (r.me && isDecoded()) ? '<span class="crown" title="Дошёл до RESONANCE">◆</span> ' : '';
         rows.push('<div class="'+cls+'">'+
           '<span class="rk">'+(i+1)+'</span>'+
           '<span class="av" style="color:'+r.av+';background:'+r.av+'"></span>'+
-          '<span class="nm">'+(r.me?"ТЫ":escapeHtml(r.name))+'</span>'+
+          '<span class="nm">'+crown+(r.me?"ТЫ":escapeHtml(r.name))+'</span>'+
           '<span class="sc">'+M.fmt(r.score)+'</span></div>');
         prev=i;
       });
@@ -1753,6 +1809,17 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     } else {
       ovEl.innerHTML = "Ты <b>#"+s.rank+"</b> из "+s.total+" · до следующего "+
         (s.rank>1? M.fmt(Math.max(1,(s.list[s.rank-2].score - G.score)))+" очков" : "ты лидер!");
+    }
+
+    // v13 prize panel: visible to anyone who has decoded RESONANCE (arrival is permanent)
+    var pp=document.getElementById("prizePanel");
+    if(pp){
+      if(isDecoded()){
+        document.getElementById("prizeCode").textContent = myPrizeCode();
+        pp.classList.remove("hidden");
+      } else {
+        pp.classList.add("hidden");
+      }
     }
 
     // theme unlock check (cosmetic, lifetime best)
@@ -2396,6 +2463,15 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     var done=function(){ var b=document.getElementById("shareBtn"); var o=b.textContent; b.textContent="Скопировано ✓"; setTimeout(function(){b.textContent=o;},1400); };
     if(navigator.share){ navigator.share({title:"PHASE", text:txt, url:url}).catch(function(){}); }
     else if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(done).catch(done); }
+    else { done(); }
+  });
+
+  // v13 PRIZE: copy the proof-of-arrival code
+  document.getElementById("prizeCopy").addEventListener("click", function(){
+    var code = document.getElementById("prizeCode").textContent;
+    var b=this, o=b.textContent;
+    var done=function(){ b.textContent="Скопировано ✓"; setTimeout(function(){b.textContent=o;},1400); };
+    if(navigator.clipboard){ navigator.clipboard.writeText(code).then(done).catch(done); }
     else { done(); }
   });
 
