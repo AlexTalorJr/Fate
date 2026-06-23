@@ -369,7 +369,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v17</div>
+    <div class="verBanner">PHASE · v18</div>
   </div>
 
   <!-- DECODE -->
@@ -1411,23 +1411,29 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   function thud(){ tone(70,0.16,"sine",0.4); }
   function tick(){ tone(180,0.05,"sine",0.05); }
 
-  /* ---------- v16 HARD-ROCK engine ----------
-     Fast, aggressive, loud. Pure WebAudio, no samples. Built from:
-       • Distorted guitar  — sawtooth -> WaveShaper (hard clip) -> cabinet lowpass.
-                             Power chords (root + fifth + octave), palm-mute chug.
-       • Bass guitar       — saw an octave below the chord root, lightly driven.
-       • Drum kit          — kick (pitch-dropping sine), snare (noise + body),
-                             hihat (filtered noise) on the offbeats.
-       • Lead              — octave-up riff that kicks in as the chain builds and
-                             goes double-time / soloing during a surge.
-     A self-clocking lookahead scheduler chugs eighth-notes across each ring beat
-     (sixteenths on surge = "fast & aggressive"). Reacts to game state:
-       chain  -> drive + lead riff + busier drums
-       surge  -> double-time, crash, lead octave, fattest tone
-       health -> low HP drops to a tense palm-muted single chug (danger)
-     Rides its own gain bus through a compressor so it stays punchy and loud
-     without clipping; the slider is independent of SFX. */
+  /* ---------- v18 SYNTHWAVE engine (NFS Hot-Pursuit / 2015 vibe) ----------
+     Epic synthwave drive. Pure WebAudio, no samples. Replaced the v16 hard-rock
+     (distortion guitar / power chords) on Alexandr's request. Built from:
+       • Pulsing synth bass — detuned saw+square through a resonant lowpass with a
+                              per-hit filter envelope, an octave under root, on EVERY
+                              eighth = the propulsive "engine" of the track.
+       • Synth chord stabs  — wide detuned-saw triad with a plucky filter sweep, on the
+                              offbeats (the NFS forward push). Gentle saturation, not dist.
+       • Arpeggio           — bright detuned-saw 8ths/16ths through a feedback echo
+                              (synthwave signature); comes in with chain, full 16ths on surge.
+       • Lead hook          — sparse sustained top note when things get busy, so it sings.
+       • Electronic drums   — punchy kick (+click) on 0&2, clap-style snare on the
+                              backbeat, tight hats; crash on surge.
+     A self-clocking lookahead scheduler lays one bar per ring beat. Reacts to game state:
+       chain  -> filter opens (sweep) + arp + lead hook + brighter stabs
+       surge  -> 16th arp + crash + 16th hats + fatter everything
+       health -> low HP darkens the filter + shortens bass/stabs (tense)
+     A "breathing" lowpass on the chord bus does the classic synthwave filter-sweep.
+     Rides its own gain bus through a compressor (wide, glued, no clip); the slider is
+     independent of SFX. Public hooks unchanged since v14 (musicStart/Stop/Reschedule/
+     Update/OnBeat/SetOn/SetVol/DuckFor/Relax/PrefsLoad/EnsureBus) — game-loop wiring intact. */
   var musicGain=null, musicComp=null, musicShaper=null, musicCab=null, musicBassShaper=null;
+  var musicLeadDelay=null, musicLeadDelayG=null;   // synthwave: a touch of echo on lead/arp
   var musicOn=true, musicVol=0.5, musicNodes=[], musicTimer=null, musicDuck=1;
   var musicIntensity=0, musicSurge=0, musicDanger=0;
   var musicBeatLen=0.5;         // seconds per ring-beat ("bar"), updated live
@@ -1437,11 +1443,11 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     var mo=store.get("musicOn"); musicOn = (mo===null) ? true : (mo==="1");
     var mv=store.get("musicVol"); musicVol = (mv===null) ? 0.5 : Math.max(0,Math.min(1,parseFloat(mv)));
   }
-  // hard rock should be LOUD: higher base gain, compressor keeps it from clipping
-  function musicTargetGain(){ return musicOn ? (0.42*musicVol*musicDuck) : 0; }
+  // synthwave drive: wide and present, the compressor keeps it glued without clipping
+  function musicTargetGain(){ return musicOn ? (0.40*musicVol*musicDuck) : 0; }
   function _distCurve(amount){
     var n=1024, c=new Float32Array(n), k=amount||50;
-    for(var i=0;i<n;i++){ var x=i*2/n-1; c[i]=(1+k)*x/(1+k*Math.abs(x)); } // soft-to-hard clip
+    for(var i=0;i<n;i++){ var x=i*2/n-1; c[i]=(1+k)*x/(1+k*Math.abs(x)); } // soft saturation
     return c;
   }
   function musicEnsureBus(){
@@ -1449,16 +1455,22 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     if(musicGain) return;
     musicGain = AC.createGain(); musicGain.gain.value = 0;
     musicComp = AC.createDynamicsCompressor();
-    musicComp.threshold.value=-18; musicComp.knee.value=8; musicComp.ratio.value=6;
-    musicComp.attack.value=0.003; musicComp.release.value=0.18;
+    musicComp.threshold.value=-16; musicComp.knee.value=14; musicComp.ratio.value=4;
+    musicComp.attack.value=0.004; musicComp.release.value=0.20;
     musicGain.connect(musicComp); musicComp.connect(master);
-    // shared guitar chain: shaper -> cabinet lowpass -> bus
-    musicShaper = AC.createWaveShaper(); musicShaper.curve=_distCurve(60); musicShaper.oversample="4x";
-    musicCab = AC.createBiquadFilter(); musicCab.type="lowpass"; musicCab.frequency.value=2600; musicCab.Q.value=0.6;
+    // SYNTH CHORD CHAIN: gentle saturation -> a "breathing" lowpass (the NFS filter-sweep
+    // feel — opens with intensity) -> bus. Far softer drive than the old guitar cabinet.
+    musicShaper = AC.createWaveShaper(); musicShaper.curve=_distCurve(8); musicShaper.oversample="2x";
+    musicCab = AC.createBiquadFilter(); musicCab.type="lowpass"; musicCab.frequency.value=2200; musicCab.Q.value=1.1;
     musicShaper.connect(musicCab); musicCab.connect(musicGain);
-    // bass chain: lighter drive straight to bus
-    musicBassShaper = AC.createWaveShaper(); musicBassShaper.curve=_distCurve(18); musicBassShaper.oversample="2x";
+    // BASS CHAIN: very light shaping straight to bus (clean, round synth bass)
+    musicBassShaper = AC.createWaveShaper(); musicBassShaper.curve=_distCurve(4); musicBassShaper.oversample="2x";
     musicBassShaper.connect(musicGain);
+    // LEAD/ARP ECHO: short feedback delay for that wide synthwave shimmer
+    musicLeadDelay = AC.createDelay(0.6); musicLeadDelay.delayTime.value=0.26;
+    musicLeadDelayG = AC.createGain(); musicLeadDelayG.gain.value=0.28;
+    musicLeadDelay.connect(musicLeadDelayG); musicLeadDelayG.connect(musicLeadDelay); // feedback
+    musicLeadDelayG.connect(musicGain);
   }
   function musicApplyGain(ramp){
     if(!musicGain||!AC) return;
@@ -1471,49 +1483,78 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     musicDuck=0.4; musicApplyGain(0.06);
     setTimeout(function(){ musicDuck=1; musicApplyGain(0.4); }, ms||500);
   }
-  // theme-keyed root note (low, for heaviness): E1-ish base transposed by theme
+  // theme-keyed root note. Synthwave bass sits a touch higher than the old heavy rock
+  // root so the pulse is round and driving rather than chuggy. A1-ish base.
   function musicRoot(){
     var off=0;
     if(activeTheme==="amber") off=5; else if(activeTheme==="violet") off=7;
     else if(activeTheme==="magenta") off=3;
-    return 55.0*Math.pow(2,off/12); // A1 base, low and heavy
+    return 55.0*Math.pow(2,off/12); // A1 base
   }
   // a driving minor progression in semitone offsets from root (i - VI - VII - i)
   var MUSIC_PROG=[0, 8, 10, 0, 0, 5, 10, 8];
+  // SYNTH CHORD STAB (replaces the guitar power-chord). A wide, detuned saw triad with
+  // a plucky filter-enveloped attack — the propulsive NFS chord on the offbeats. `bright`
+  // (=intensity) pushes the stab's own lowpass open for more drive.
   function musicChugChord(t, rootHz, amp, dur, bright){
-    // power chord: root + fifth + octave, through the shared distortion chain
-    [0,7,12].forEach(function(semi,i){
-      var o=AC.createOscillator(); o.type="sawtooth";
-      o.frequency.value=rootHz*Math.pow(2,semi/12);
-      var g=AC.createGain();
-      var a=amp*(i===0?1:(i===1?0.7:0.5));
-      g.gain.setValueAtTime(0.0001,t);
-      g.gain.linearRampToValueAtTime(a,t+0.004);          // hard pick attack
-      g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-      o.connect(g); g.connect(musicShaper);
-      o.start(t); o.stop(t+dur+0.02);
+    var triad=[0,7,12,15];                       // root, fifth, octave, +3 (lush)
+    var detune=[-7,6,-4];                        // cents-ish spread across 3 stacked saws
+    var sub=AC.createBiquadFilter(); sub.type="lowpass";
+    sub.frequency.setValueAtTime(700 + (bright||0)*2600, t);
+    sub.frequency.exponentialRampToValueAtTime(420 + (bright||0)*1400, t+dur*0.9); // pluck sweep down
+    sub.Q.value=1.0; sub.connect(musicShaper);
+    triad.forEach(function(semi,ti){
+      detune.forEach(function(dc,di){
+        var o=AC.createOscillator(); o.type="sawtooth";
+        o.frequency.value=rootHz*Math.pow(2,semi/12);
+        o.detune.value=dc + (di-1)*4;
+        var g=AC.createGain();
+        var a=amp*(ti===0?0.9:(ti===1?0.6:0.4))/3;
+        g.gain.setValueAtTime(0.0001,t);
+        g.gain.linearRampToValueAtTime(a,t+0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+        o.connect(g); g.connect(sub);
+        o.start(t); o.stop(t+dur+0.02);
+      });
     });
-    // bass under the chord
-    var bo=AC.createOscillator(); bo.type="sawtooth"; bo.frequency.value=rootHz*0.5;
-    var bg=AC.createGain(); bg.gain.setValueAtTime(0.0001,t);
-    bg.gain.linearRampToValueAtTime(amp*0.9,t+0.005);
-    bg.gain.exponentialRampToValueAtTime(0.0001,t+dur*1.1);
-    bo.connect(bg); bg.connect(musicBassShaper); bo.start(t); bo.stop(t+dur*1.1+0.02);
   }
+  // PULSING SYNTH BASS — the engine of the track. Round saw through a resonant lowpass
+  // with a per-hit envelope, sitting an octave under the root (the NFS "drive" pulse).
+  function musicBass(t, rootHz, amp, dur){
+    var o=AC.createOscillator(); o.type="sawtooth"; o.frequency.value=rootHz*0.5;
+    var o2=AC.createOscillator(); o2.type="square"; o2.frequency.value=rootHz*0.5; o2.detune.value=-6;
+    var f=AC.createBiquadFilter(); f.type="lowpass"; f.Q.value=6;
+    f.frequency.setValueAtTime(900,t); f.frequency.exponentialRampToValueAtTime(140,t+dur*0.8);
+    var g=AC.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(amp,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur*1.05);
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(musicBassShaper);
+    o.start(t); o.stop(t+dur*1.1+0.02); o2.start(t); o2.stop(t+dur*1.1+0.02);
+  }
+  // SYNTHWAVE LEAD / ARP voice — bright detuned saw, fed through the echo for shimmer.
+  // Used both as the slow lead hook and as fast arpeggio notes.
   function musicLead(t, rootHz, deg, amp){
     var semis=[0,3,5,7,10,12,14,15];
-    var o=AC.createOscillator(); o.type="square";
-    o.frequency.value=rootHz*4*Math.pow(2,semis[deg%semis.length]/12);
+    var base=rootHz*4*Math.pow(2,semis[((deg%semis.length)+semis.length)%semis.length]/12);
+    var o=AC.createOscillator(); o.type="sawtooth"; o.frequency.value=base;
+    var o2=AC.createOscillator(); o2.type="sawtooth"; o2.frequency.value=base; o2.detune.value=8;
     var g=AC.createGain(); g.gain.setValueAtTime(0.0001,t);
     g.gain.linearRampToValueAtTime(amp,t+0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
-    o.connect(g); g.connect(musicShaper); o.start(t); o.stop(t+0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.22);
+    o.connect(g); o2.connect(g); g.connect(musicShaper);
+    if(musicLeadDelay){ g.connect(musicLeadDelay); }   // echo tail
+    o.start(t); o.stop(t+0.24); o2.start(t); o2.stop(t+0.24);
   }
   function musicKick(t,amp){
+    // punchy electronic kick: faster pitch drop + a click transient
     var o=AC.createOscillator(); o.type="sine";
-    o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(45,t+0.09);
-    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
-    o.connect(g); g.connect(musicGain); o.start(t); o.stop(t+0.18);
+    o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(42,t+0.07);
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+    o.connect(g); g.connect(musicGain); o.start(t); o.stop(t+0.2);
+    // click
+    var c=AC.createOscillator(); c.type="triangle"; c.frequency.setValueAtTime(900,t);
+    var cg=AC.createGain(); cg.gain.setValueAtTime(amp*0.4,t); cg.gain.exponentialRampToValueAtTime(0.0001,t+0.02);
+    c.connect(cg); cg.connect(musicGain); c.start(t); c.stop(t+0.03);
   }
   function _noiseBuf(){
     if(musicEnsureBus._nb) return musicEnsureBus._nb;
@@ -1521,58 +1562,74 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     for(var i=0;i<n;i++) d[i]=Math.random()*2-1;
     musicEnsureBus._nb=buf; return buf;
   }
+  // CLAP/SNARE — synthwave clap feel: a couple of quick filtered noise bursts + a short
+  // tuned body, with a tiny tail (sounds bigger than a dry rock snare).
   function musicSnare(t,amp){
-    var s=AC.createBufferSource(); s.buffer=_noiseBuf();
-    var bp=AC.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1800; bp.Q.value=0.8;
-    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.14);
-    s.connect(bp); bp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+0.16);
-    // body
-    var o=AC.createOscillator(); o.type="triangle"; o.frequency.setValueAtTime(190,t);
-    var og=AC.createGain(); og.gain.setValueAtTime(amp*0.5,t); og.gain.exponentialRampToValueAtTime(0.0001,t+0.1);
-    o.connect(og); og.connect(musicGain); o.start(t); o.stop(t+0.12);
+    [0,0.012,0.024].forEach(function(off,i){
+      var s=AC.createBufferSource(); s.buffer=_noiseBuf();
+      var bp=AC.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1700; bp.Q.value=1.2;
+      var g=AC.createGain(); var a=amp*(i===2?1:0.6);
+      g.gain.setValueAtTime(a,t+off); g.gain.exponentialRampToValueAtTime(0.0001,t+off+(i===2?0.18:0.05));
+      s.connect(bp); bp.connect(g); g.connect(musicGain); s.start(t+off); s.stop(t+off+0.2);
+    });
+    var o=AC.createOscillator(); o.type="triangle"; o.frequency.setValueAtTime(210,t);
+    var og=AC.createGain(); og.gain.setValueAtTime(amp*0.4,t); og.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
+    o.connect(og); og.connect(musicGain); o.start(t); o.stop(t+0.11);
   }
   function musicHat(t,amp,open){
     var s=AC.createBufferSource(); s.buffer=_noiseBuf();
-    var hp=AC.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=7000;
-    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+(open?0.12:0.04));
-    s.connect(hp); hp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+(open?0.14:0.06));
+    var hp=AC.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=8000;
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+(open?0.10:0.03));
+    s.connect(hp); hp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+(open?0.12:0.05));
   }
   function musicCrash(t,amp){
     var s=AC.createBufferSource(); s.buffer=_noiseBuf();
-    var hp=AC.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=5000;
-    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.6);
-    s.connect(hp); hp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+0.65);
+    var hp=AC.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=4500;
+    var g=AC.createGain(); g.gain.setValueAtTime(amp,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.7);
+    s.connect(hp); hp.connect(g); g.connect(musicGain); s.start(t); s.stop(t+0.75);
   }
 
-  // Schedule one "bar" (= one ring beat) of rock at absolute time t0, length bl.
+  // Schedule one "bar" (= one ring beat) of synthwave at absolute time t0, length bl.
   function musicScheduleBar(t0, bl){
     if(!AC||!musicGain||!musicOn) return;
     var I=musicIntensity, S=musicSurge, D=musicDanger;
     var root=musicRoot()*Math.pow(2, MUSIC_PROG[musicProgStep%MUSIC_PROG.length]/12);
     musicProgStep++;
-    var subdiv = S>0.5 ? 4 : 2;                 // eighths normally, sixteenths on surge (fast)
-    var n = Math.max(2, Math.round(subdiv*2));  // chugs per bar (4 normal, 8 surge)
+    var n = 4;                                  // 4 sub-steps (eighths) per bar
     var step = bl/n;
-    var chugDur = step*(D>0.5?0.5:0.85);        // palm-mute (shorter) when in danger
-    var chugAmp = (D>0.5? 0.5 : 0.78) + S*0.2;  // tone fattens on surge
-    // open the cabinet brighter as intensity/surge rise (more aggression)
-    if(musicCab){ musicCab.frequency.setTargetAtTime(1800 + I*1600 + S*2200 - D*400, t0, 0.1); }
+    // open the breathing lowpass with intensity/surge (the NFS filter-sweep drive);
+    // pull it down a touch in danger so low-HP feels darker/tenser.
+    if(musicCab){ musicCab.frequency.setTargetAtTime(1500 + I*2200 + S*2600 - D*500, t0, 0.1); }
+
+    var bassAmp = 0.62 + S*0.18;
+    var stabAmp = (D>0.5? 0.34 : 0.5) + S*0.18;
     for(var i=0;i<n;i++){
       var t=t0+i*step;
-      // guitar chug every step (the driving engine)
-      musicChugChord(t, root, chugAmp, chugDur, I);
-      // drums: kick on the downbeats, snare on the backbeat, hats on offbeats
-      var half=n/2;
-      if(i===0 || i===half) musicKick(t, 0.9);
-      if(i===Math.floor(half/2) || i===Math.floor(half+half/2)) musicKick(t,0.7); // double-kick feel
-      if(i===half) musicSnare(t, 0.85);
-      if(n>=4 && i===n-1 && (I>0.4||S>0.5)) musicSnare(t,0.6);                     // fill on busy bars
-      musicHat(t, 0.18 + S*0.1, S>0.5 && i%2===1);
-      // lead riff: builds in with chain, solos on surge
-      if(S>0.5){ musicLead(t, root, musicSubStep+i, 0.28); }
-      else if(I>0.45 && i%2===0){ musicLead(t, root, musicSubStep, 0.2*I); }
+      // PULSING BASS on every eighth = the engine. Shorter (punchier) when in danger.
+      musicBass(t, root, bassAmp, step*(D>0.5?0.55:0.92));
+      // CHORD STABS on the offbeats (the propulsive synthwave push)
+      if(i%2===1){ musicChugChord(t, root, stabAmp, step*1.4, I + S*0.4); }
+      // DRUMS: kick on 0 & 2 (driving), clap/snare on the backbeat (step 2), tight hats
+      if(i===0 || i===2) musicKick(t, 0.92);
+      if(i===2) musicSnare(t, 0.8);
+      musicHat(t, 0.16 + S*0.08, false);
+      if(S>0.5) musicHat(t+step*0.5, 0.12, false);     // 16th hats add pace on surge
     }
-    if(S>0.5 && musicProgStep%2===0) musicCrash(t0, 0.4);  // crash at bar starts during surge
+
+    // ARPEGGIO — synthwave signature. Comes in with chain, full 16ths on surge.
+    if(S>0.5 || I>0.4){
+      var arpN = S>0.5 ? 8 : 4;                 // 16ths on surge, 8ths otherwise
+      var arpStep = bl/arpN;
+      var pat=[0,2,4,7,4,2,0,2];                // rolling minor-ish arp degrees
+      var arpAmp = (S>0.5?0.26:0.16*I);
+      for(var a=0;a<arpN;a++){
+        musicLead(t0+a*arpStep, root, pat[(musicSubStep+a)%pat.length], arpAmp);
+      }
+    }
+    // LEAD HOOK — a sustained-ish top note once things are busy (sparse, so it sings)
+    if(I>0.5 && musicProgStep%2===0){ musicLead(t0, root, 7+ (musicProgStep/2%3), 0.22*I + S*0.1); }
+
+    if(S>0.5 && musicProgStep%2===0) musicCrash(t0, 0.38);  // crash at bar starts during surge
     musicSubStep++;
   }
 
