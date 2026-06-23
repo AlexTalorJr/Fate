@@ -184,6 +184,7 @@ var PhaseCore = (function(){
       forgiveLeft: (up && up.indexOf("g2")>=0) ? 1 : 0,   // greedy cliff forgiveness (g2)
       keeperLeft:  (up && up.indexOf("c2")>=0) ? 1 : 0,   // combo-keeper: 1 miss survives (c2)
       greedyRun:0,                     // consecutive greedy locks (g4 stack)
+      starsLevel:0,                    // stars (locks) collected since last level-up -> level-up explosion bonus
       stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0,
              greedy:0, twins:0, surges:0, holds:0, echoes:0, links:0, cashouts:0},
       // event log for the renderer to react to (consumed each frame)
@@ -220,14 +221,23 @@ var PhaseCore = (function(){
   }
   function refillGap(s){ return lvlFloor(CFG.REFILL, CFG.REFILL_FLOOR, 0.03, s.level); }
   // EARLY-GAME FORGIVENESS: scales DOWN health damage in the first levels so a learning
-  // player (the 10y-o playtest: "ends too fast, can't beat 15k") lives long enough for
-  // the score to climb before difficulty bites. ~0.45x at L1 -> 1.0x by L8, then full.
-  // High-level stakes (where skilled players actually live) are untouched -> calibration
-  // of mash-death / idle-death / the perfect-bot ceiling at high levels is preserved.
+  // player (the 10y-o playtest: "ends too fast, can't beat 15k", "died on L7 instantly").
+  // v17's curve faded out by L8 — right where she was playing — so it didn't help.
+  // This is MUCH gentler and stretches far longer: ~0.25x damage at L1, ramping to full
+  // only by L18. A learning player gets a long forgiving runway well past L7 and 15k.
+  // High-level stakes (L18+, where skilled players live) are untouched -> mash/idle death
+  // and the perfect-bot ceiling at high levels are preserved.
   function dmgScale(s){
     var L = s.level||1;
-    if(L>=8) return 1;
-    return 0.45 + 0.55*((L-1)/7);
+    if(L>=18) return 1;
+    return 0.25 + 0.75*((L-1)/17);   // 0.25 at L1 ... 1.0 at L18
+  }
+  // Decohere/idle uses a MILDER forgiveness (floor ~0.6x): ignoring nodes entirely should
+  // still be fatal (idle has stakes), but the "instant death from a cascade" a learning
+  // player hits is softened. Active mistakes (mistap/miss) get the full gentle dmgScale above.
+  function dmgScaleDecoh(s){
+    var d = dmgScale(s);
+    return d<0.6 ? 0.6 : d;
   }
   // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
   function targetNodes(s){
@@ -388,7 +398,7 @@ var PhaseCore = (function(){
         s.nodes.splice(i,1);
         s.stats.decohered++;
         s.chain = 0; s.chainTimer = 0;
-        s.health = clamp(s.health - CFG.H_HIT*dmgScale(s), 0, CFG.H_MAX);
+        s.health = clamp(s.health - CFG.H_HIT*dmgScaleDecoh(s), 0, CFG.H_MAX);
         s.events.push({type:"decohere", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone});
         if(s.health<=0){ die(s); return; }
       }
@@ -413,7 +423,15 @@ var PhaseCore = (function(){
     // --- level up by score ---
     while(s.score >= levelThreshold(s.level)){
       s.level++;
-      s.events.push({type:"levelup", level:s.level});
+      // STAR NOVA: the stars collected this level "detonate" with the core on level-up,
+      // paying a bonus scaled by how many you gathered (soft-capped so it can't be farmed
+      // or blow up the leaderboard scale). The core visually resets small afterwards.
+      var stars = s.starsLevel;
+      var counted = stars>40 ? 40 : stars;             // soft cap
+      var novaBonus = Math.round(CFG.SCORE_BASE * counted * 0.5);
+      s.score += novaBonus;
+      s.starsLevel = 0;
+      s.events.push({type:"levelup", level:s.level, stars:stars, bonus:novaBonus});
     }
   }
 
@@ -564,6 +582,7 @@ var PhaseCore = (function(){
     }
     if(s.chain > s.stats.maxChain) s.stats.maxChain = s.chain;
     s.stats.locks++;
+    s.starsLevel++;                 // each captured star feeds the core; paid out as a burst on level-up
     s.health = clamp(s.health + CFG.H_LOCK, 0, CFG.H_MAX);
 
     // SURGE node: flips the rules for a few seconds. f2 longer, f4 stacks the mult.

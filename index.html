@@ -369,7 +369,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v18</div>
+    <div class="verBanner">PHASE · v19</div>
   </div>
 
   <!-- DECODE -->
@@ -635,6 +635,7 @@ var PhaseCore = (function(){
       forgiveLeft: (up && up.indexOf("g2")>=0) ? 1 : 0,   // greedy cliff forgiveness (g2)
       keeperLeft:  (up && up.indexOf("c2")>=0) ? 1 : 0,   // combo-keeper: 1 miss survives (c2)
       greedyRun:0,                     // consecutive greedy locks (g4 stack)
+      starsLevel:0,                    // stars (locks) collected since last level-up -> level-up explosion bonus
       stats:{perfect:0, good:0, pure:0, miss:0, decohered:0, maxChain:0, locks:0,
              greedy:0, twins:0, surges:0, holds:0, echoes:0, links:0, cashouts:0},
       // event log for the renderer to react to (consumed each frame)
@@ -671,14 +672,23 @@ var PhaseCore = (function(){
   }
   function refillGap(s){ return lvlFloor(CFG.REFILL, CFG.REFILL_FLOOR, 0.03, s.level); }
   // EARLY-GAME FORGIVENESS: scales DOWN health damage in the first levels so a learning
-  // player (the 10y-o playtest: "ends too fast, can't beat 15k") lives long enough for
-  // the score to climb before difficulty bites. ~0.45x at L1 -> 1.0x by L8, then full.
-  // High-level stakes (where skilled players actually live) are untouched -> calibration
-  // of mash-death / idle-death / the perfect-bot ceiling at high levels is preserved.
+  // player (the 10y-o playtest: "ends too fast, can't beat 15k", "died on L7 instantly").
+  // v17's curve faded out by L8 — right where she was playing — so it didn't help.
+  // This is MUCH gentler and stretches far longer: ~0.25x damage at L1, ramping to full
+  // only by L18. A learning player gets a long forgiving runway well past L7 and 15k.
+  // High-level stakes (L18+, where skilled players live) are untouched -> mash/idle death
+  // and the perfect-bot ceiling at high levels are preserved.
   function dmgScale(s){
     var L = s.level||1;
-    if(L>=8) return 1;
-    return 0.45 + 0.55*((L-1)/7);
+    if(L>=18) return 1;
+    return 0.25 + 0.75*((L-1)/17);   // 0.25 at L1 ... 1.0 at L18
+  }
+  // Decohere/idle uses a MILDER forgiveness (floor ~0.6x): ignoring nodes entirely should
+  // still be fatal (idle has stakes), but the "instant death from a cascade" a learning
+  // player hits is softened. Active mistakes (mistap/miss) get the full gentle dmgScale above.
+  function dmgScaleDecoh(s){
+    var d = dmgScale(s);
+    return d<0.6 ? 0.6 : d;
   }
   // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
   function targetNodes(s){
@@ -839,7 +849,7 @@ var PhaseCore = (function(){
         s.nodes.splice(i,1);
         s.stats.decohered++;
         s.chain = 0; s.chainTimer = 0;
-        s.health = clamp(s.health - CFG.H_HIT*dmgScale(s), 0, CFG.H_MAX);
+        s.health = clamp(s.health - CFG.H_HIT*dmgScaleDecoh(s), 0, CFG.H_MAX);
         s.events.push({type:"decohere", ang:nd.ang, rFrac:nd.rFrac, tone:nd.tone});
         if(s.health<=0){ die(s); return; }
       }
@@ -864,7 +874,15 @@ var PhaseCore = (function(){
     // --- level up by score ---
     while(s.score >= levelThreshold(s.level)){
       s.level++;
-      s.events.push({type:"levelup", level:s.level});
+      // STAR NOVA: the stars collected this level "detonate" with the core on level-up,
+      // paying a bonus scaled by how many you gathered (soft-capped so it can't be farmed
+      // or blow up the leaderboard scale). The core visually resets small afterwards.
+      var stars = s.starsLevel;
+      var counted = stars>40 ? 40 : stars;             // soft cap
+      var novaBonus = Math.round(CFG.SCORE_BASE * counted * 0.5);
+      s.score += novaBonus;
+      s.starsLevel = 0;
+      s.events.push({type:"levelup", level:s.level, stars:stars, bonus:novaBonus});
     }
   }
 
@@ -1015,6 +1033,7 @@ var PhaseCore = (function(){
     }
     if(s.chain > s.stats.maxChain) s.stats.maxChain = s.chain;
     s.stats.locks++;
+    s.starsLevel++;                 // each captured star feeds the core; paid out as a burst on level-up
     s.health = clamp(s.health + CFG.H_LOCK, 0, CFG.H_MAX);
 
     // SURGE node: flips the rules for a few seconds. f2 longer, f4 stacks the mult.
@@ -1738,9 +1757,82 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
   }
 
+  // advance flying stars; inbound ones feed the core on arrival, outbound (nova) fly out
+  var coreFeedPulse=0;     // brief pop each time a star lands in the core
+  function updateFlyingStars(){
+    for(var i=flyingStars.length-1;i>=0;i--){
+      var st=flyingStars[i];
+      st.t += 1/60;
+      st.spin += st.spinV;
+      var f=st.t/st.dur;
+      if(st.outward){
+        st.x += st.vx; st.y += st.vy; st.vx*=0.93; st.vy*=0.93;
+        if(f>=1){ flyingStars.splice(i,1); continue; }
+      } else {
+        var e=f*f*(3-2*f);                      // smoothstep ease toward the core
+        st.x = st.sx + (CX-st.sx)*e;
+        st.y = st.sy + (CY-st.sy)*e;
+        if(f>=1){ coreCharge += 1; coreFeedPulse = 1; flyingStars.splice(i,1); continue; }
+      }
+    }
+  }
+  function drawFlyingStars(){
+    ctx.globalCompositeOperation="lighter";
+    for(var i=0;i<flyingStars.length;i++){
+      var st=flyingStars[i];
+      var f=st.t/st.dur;
+      var a = st.outward ? Math.max(0,1-f) : (0.6+0.4*f);
+      var sz = (st.big?5.5:3.8) * (st.outward ? (0.7+f*0.6) : (0.6+f*0.7));
+      drawStar(st.x, st.y, sz, sz*0.45, 4, st.spin, st.hex, a, st.big?14:8);
+    }
+    ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
+  }
+
   // expanding shock ring on PERFECT only (one at a time-ish)
   var shocks=[];
   function shock(hex){ if(shocks.length<3) shocks.push({r:edgeR*0.4,a:0.8,hex:hex}); }
+
+  /* ---------- STAR-CORE (daughter's idea: dots become stars, fly to the core, the core
+     GROWS + RECOLOURS as it feeds, then DETONATES on level-up scattering them + bonus).
+     Big, obvious, cause-and-effect feedback — what a 10y-o actually reads. ---------- */
+  var flyingStars=[];        // {x,y,vx,vy, sx,sy, t, dur, hex, big} animating node -> core
+  var coreCharge=0;          // smoothed count of stars currently fed into the core (resets on level-up)
+  var coreChargeDisp=0;      // eased display value (so growth/recolour is smooth, not steppy)
+  var novaPop=0;             // 0..1 nova flash on level-up (the explosion)
+  var novaBonusShown=0;      // bonus points to float up on the last nova
+  var novaStars=0;           // how many stars detonated (drives explosion size)
+  function spawnFlyingStar(fromX, fromY, hex, big){
+    // launches a 4-point star that arcs from the hit point into the core
+    flyingStars.push({ sx:fromX, sy:fromY, x:fromX, y:fromY,
+      t:0, dur:0.34+Math.random()*0.12, hex:hex, big:!!big,
+      spin:Math.random()*6.28, spinV:(Math.random()*2-1)*0.4 });
+  }
+  // draw a sharp N-point star at (x,y)
+  function drawStar(x,y,rOuter,rInner,points,rot,hex,alpha,glow){
+    ctx.save();
+    ctx.translate(x,y); ctx.rotate(rot);
+    ctx.beginPath();
+    for(var i=0;i<points*2;i++){
+      var rad=(i%2===0)?rOuter:rInner;
+      var a=(Math.PI/points)*i;
+      var px=Math.cos(a)*rad, py=Math.sin(a)*rad;
+      if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    ctx.fillStyle=hex; ctx.globalAlpha=alpha;
+    if(glow){ ctx.shadowBlur=glow; ctx.shadowColor=hex; }
+    ctx.fill(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+    ctx.restore();
+  }
+  // the core's colour shifts through a warm rainbow as it gathers stars (1C)
+  function chargeHue(charge){
+    var hues=[190, 165, 90, 50, 25, 320, 280];   // cyan->teal->green->gold->orange->pink->violet
+    var f=Math.min(0.999, charge/14);             // full rainbow by ~14 stars
+    var idx=f*(hues.length-1);
+    var i0=Math.floor(idx), i1=Math.min(hues.length-1,i0+1), fr=idx-i0;
+    var h=hues[i0]+(hues[i1]-hues[i0])*fr;
+    return "hsl("+h.toFixed(0)+",90%,62%)";
+  }
 
   /* ---------- v10 discrete level transition ---------- */
   // A level-up is a distinct MOMENT: a bright expanding "LEVEL N" ring + banner,
@@ -2048,6 +2140,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     G.nodeR = edgeR - C.CFG.RPAD;
     parts.length=0; shocks.length=0; kick=0; scoreShown=0;
     lvlFlash=0; lvlFlashLevel=1; phaseBand=0;
+    flyingStars.length=0; coreCharge=0; coreChargeDisp=0; coreFeedPulse=0; novaPop=0; novaBonusShown=0; novaStars=0;
     tut.on = withTutorial && !taught;
     tut.step=0; tut.hold=0;
     prevRunScore=0; rivalTarget=null; rankFlashT=0;
@@ -2236,6 +2329,9 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
           showToast("⚡ ФАЗА-ВСПЛЕСК ×2", SURGE_HEX);
           for(var b=0;b<3;b++) burst(CX,CY,["#39e6ff","#ff4fd8","#ffc24b"][b],14,9,true);
         }
+        // STAR-CORE: every captured dot becomes a star that flies into the core and
+        // feeds it (it grows + recolours). The single most visible "my hit did something".
+        if(pos){ spawnFlyingStar(pos.x, pos.y, e.charged?GOLD:(e.crit?"#ffffff":TONE_HEX[e.tone]), e.crit||e.charged); }
       }
       else if(e.type==="twinarm"){
         // first lock of a twin: pulse + a hint it needs one more pass
@@ -2259,8 +2355,25 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       else if(e.type==="levelup"){
         // discrete transition moment
         lvlFlash = 1; lvlFlashLevel = e.level;
-        showToast("LEVEL "+e.level, "#9b7bff");
-        addKick(4); shock("#9b7bff");
+        // STAR NOVA: the core detonates, scattering the stars it gathered + a bonus.
+        novaPop = 1;
+        novaStars = e.stars||0;
+        novaBonusShown = e.bonus||0;
+        coreCharge = 0;                         // core resets small after the blast
+        // scatter burst sized by how many stars were collected (big, celebratory)
+        var nStars = Math.min(34, 8 + (e.stars||0));
+        var novaHex = chargeHue(coreChargeDisp); // explode in the colour it had reached
+        for(var b=0;b<nStars;b++){
+          var ang=Math.random()*6.28, spd=5+Math.random()*7;
+          flyingStars.push({ sx:CX, sy:CY, x:CX, y:CY, t:0, dur:0.6+Math.random()*0.3,
+            vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, outward:true,
+            hex:(Math.random()<0.5?novaHex:["#39e6ff","#ff4fd8","#ffc24b","#9b7bff"][b%4]),
+            big:Math.random()<0.4, spin:Math.random()*6.28, spinV:(Math.random()*2-1)*0.5 });
+        }
+        burst(CX,CY,novaHex,18,9,true);
+        if(e.bonus>0) showToast("✦ +"+e.bonus, "#ffd24a");
+        else showToast("LEVEL "+e.level, "#9b7bff");
+        addKick(10); shock("#ffd24a"); shock("#9b7bff");
         var newBand = Math.floor((e.level-1)/10);
         if(newBand !== phaseBand){
           // crossing into a new "phase band" every 10 levels = bigger moment + vibe shift
@@ -2310,6 +2423,10 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     var ky = kick? (Math.random()*2-1)*kick : 0;
     kick *= 0.82; if(kick<0.4) kick=0;
     if(lvlFlash>0){ lvlFlash -= 0.02; if(lvlFlash<0) lvlFlash=0; }
+    if(novaPop>0){ novaPop -= 0.03; if(novaPop<0) novaPop=0; }
+    if(coreFeedPulse>0){ coreFeedPulse -= 0.08; if(coreFeedPulse<0) coreFeedPulse=0; }
+    coreChargeDisp += (coreCharge - coreChargeDisp)*0.18;   // eased growth/shrink of the core
+    updateFlyingStars();
     ctx.save();
     ctx.translate(kx,ky);
 
@@ -2324,13 +2441,44 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     // center core (pulses on beat) — kept SMALL & quiet on purpose: the action is
     // out on the orbit, so the center must not be the loudest thing on screen.
     // Its colour reflects the player's unlocked THEME (cosmetic progression).
+    // center core — it FEEDS on the stars flying into it: it GROWS and shifts colour
+    // through a warm rainbow as the level's stars accumulate, pops on each feed, and
+    // flashes huge on the level-up nova. This is the daughter's idea and the main
+    // "my hits visibly build something beautiful" feedback. Resets small after each nova.
     var pulse = 1 - G.beatPhase;
-    var coreR = 4 + pulse*3;
-    var coreHex = themeCore();
+    var charge = coreChargeDisp;
+    var coreHex = charge>0.3 ? chargeHue(charge) : themeCore();
+    var grown = Math.min(34, 5 + charge*2.2);              // grows with stars, capped
+    var coreR = grown + pulse*3 + coreFeedPulse*5 + novaPop*40;
+    // outer aura that intensifies as the core charges (gets prettier the more you feed it)
+    if(charge>0.5){
+      var aura=ctx.createRadialGradient(CX,CY,0,CX,CY,coreR*3.2);
+      aura.addColorStop(0, coreHex);
+      aura.addColorStop(0.5,"rgba(0,0,0,0)");
+      aura.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.globalAlpha=0.10+Math.min(0.32,charge*0.03)+novaPop*0.4;
+      ctx.fillStyle=aura;
+      ctx.beginPath(); ctx.arc(CX,CY,coreR*3.2,0,7); ctx.fill(); ctx.globalAlpha=1;
+    }
+    // the core body
     ctx.beginPath(); ctx.arc(CX,CY,coreR,0,7);
-    ctx.fillStyle=coreHex; ctx.globalAlpha=0.3+pulse*0.3;
-    ctx.shadowBlur=14; ctx.shadowColor=coreHex; ctx.fill();
+    ctx.fillStyle=coreHex; ctx.globalAlpha=0.45+pulse*0.3+coreFeedPulse*0.3;
+    ctx.shadowBlur=14+charge*2.5+novaPop*50; ctx.shadowColor=coreHex; ctx.fill();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
+    // a bright star sits at the heart once it's charged, growing with the core (1A read)
+    if(charge>1){
+      drawStar(CX,CY, Math.min(20, 3+charge*1.4), Math.min(9,1.5+charge*0.6), 4,
+               (G.t||0)*0.6, "#ffffff", 0.5+coreFeedPulse*0.4, 12);
+    }
+    // a soft ring of "satellite" sparkles when well-fed (extra prettiness, no clutter)
+    if(charge>3){
+      var sats=Math.min(8, Math.floor(charge/2));
+      for(var sI=0;sI<sats;sI++){
+        var sa=(G.t||0)*0.8 + sI*(6.283/sats);
+        var sr=coreR+10+Math.sin((G.t||0)*2+sI)*3;
+        drawStar(CX+Math.cos(sa)*sr, CY+Math.sin(sa)*sr, 2.6,1.1,4, sa, coreHex, 0.5, 6);
+      }
+    }
 
     // ---- HEALTH RING around the core: a clear, central life gauge a young player
     // can't miss (the old 3px top bar was invisible to the 10y-o playtester). The arc
@@ -2360,16 +2508,31 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       ctx.fillStyle="#ff4a73"; ctx.globalAlpha=0.18*danger; ctx.fill(); ctx.globalAlpha=1;
     }
 
-    // ---- the ONE ring ----
+    // ---- the ONE ring ---- (WIDE, and it visibly turns WHITE-HOT as it nears the node
+    // orbit — the unmistakable "press NOW" cue the 10y-o asked for: "пусть кольцо
+    // меняет цвет на подлёте". Calm tone-coloured when far, blazing white when on target.)
     var rr = Math.max(0, G.ring);
-    // ring intensifies sharply as it approaches the node-orbit (where hits happen)
     var nearOrbit = 1 - Math.min(1, Math.abs(rr - G.nodeR) / (G.edgeR*0.42));
     nearOrbit = nearOrbit*nearOrbit;  // ease-in so it stays calm until close, then POPS
+    // blend ring tone -> white as it approaches the orbit
+    function _mixHexWhite(hex, t){
+      var m=/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+      if(!m) return hex;
+      var r=parseInt(m[1],16), g=parseInt(m[2],16), b=parseInt(m[3],16);
+      r=Math.round(r+(255-r)*t); g=Math.round(g+(255-g)*t); b=Math.round(b+(255-b)*t);
+      return "rgb("+r+","+g+","+b+")";
+    }
+    var ringCol=_mixHexWhite(rhex, nearOrbit*0.9);
+    // a soft fat halo underneath (gives the line real visible thickness)
     ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
-    ctx.strokeStyle=rhex; ctx.globalAlpha=0.5 + nearOrbit*0.5;
-    ctx.lineWidth=2 + nearOrbit*2.5; ctx.shadowBlur=10 + nearOrbit*22; ctx.shadowColor=rhex;
-    ctx.stroke();
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
+    ctx.strokeStyle=ringCol; ctx.globalAlpha=(0.18+nearOrbit*0.3);
+    ctx.lineWidth=10+nearOrbit*16; ctx.shadowBlur=14+nearOrbit*30; ctx.shadowColor=ringCol;
+    ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+    // the crisp bright core line
+    ctx.beginPath(); ctx.arc(CX,CY,rr,0,7);
+    ctx.strokeStyle=ringCol; ctx.globalAlpha=0.65+nearOrbit*0.35;
+    ctx.lineWidth=4+nearOrbit*5;
+    ctx.stroke(); ctx.globalAlpha=1;
 
     // shock rings (perfect)
     for(var s=shocks.length-1;s>=0;s--){
@@ -2590,6 +2753,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
 
     ctx.globalCompositeOperation="lighter";
     drawParts();
+    drawFlyingStars();
     ctx.restore();
     ctx.globalCompositeOperation="source-over";
   }
