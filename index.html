@@ -369,7 +369,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v20</div>
+    <div class="verBanner">PHASE · v21</div>
   </div>
 
   <!-- DECODE -->
@@ -1796,18 +1796,19 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       var st=flyingStars[i];
       var f=st.t/st.dur;
       var a = st.outward ? Math.max(0,1-f) : (0.65+0.35*f);
-      // BIG and obviously star-shaped (the 10y-o read them as dots before). A soft
-      // glowing trail behind the travel direction sells the "shooting star" motion.
-      var sz = (st.big?13:9) * (st.outward ? (0.8+f*0.5) : (0.7+f*0.6));
+      var sz = (st.big?12:8.5) * (st.outward ? (0.8+f*0.5) : (0.7+f*0.6));
+      // cheap motion trail (a thin line — no blur)
       var dx=st.x-(st.px!=null?st.px:st.x), dy=st.y-(st.py!=null?st.py:st.y);
-      var tl=Math.sqrt(dx*dx+dy*dy);
-      if(tl>0.5){
-        ctx.strokeStyle=st.hex; ctx.globalAlpha=a*0.4; ctx.lineWidth=sz*0.5; ctx.lineCap="round";
+      if((dx*dx+dy*dy)>0.25){
+        ctx.strokeStyle=st.hex; ctx.globalAlpha=a*0.35; ctx.lineWidth=sz*0.45; ctx.lineCap="round";
         ctx.beginPath(); ctx.moveTo(st.x-dx*3, st.y-dy*3); ctx.lineTo(st.x,st.y); ctx.stroke();
+        ctx.globalAlpha=1;
       }
-      drawStar(st.x, st.y, sz, sz*0.42, 4, st.spin, st.hex, a, st.big?22:16);
-      // a white-hot core sparkle inside each star
-      drawStar(st.x, st.y, sz*0.5, sz*0.2, 4, st.spin, "#ffffff", a*0.85, 8);
+      // star body + white-hot centre. shadowBlur only on the bigger nova debris, and only
+      // while the field is small, so heavy nova frames don't stack dozens of blurs.
+      var useGlow = st.big && flyingStars.length<=22;
+      drawStar(st.x, st.y, sz, sz*0.42, 4, st.spin, st.hex, a, useGlow?14:0);
+      drawStar(st.x, st.y, sz*0.5, sz*0.2, 4, st.spin, "#ffffff", a*0.85, 0);
     }
     ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
   }
@@ -1827,13 +1828,17 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   var novaPop=0;             // 0..1 nova flash on level-up (the explosion)
   var novaBonusShown=0;      // bonus points to float up on the last nova
   var novaStars=0;           // how many stars detonated (drives explosion size)
+  var FLYSTAR_CAP=64;        // hard ceiling on concurrent flying stars (perf safety)
   function spawnFlyingStar(fromX, fromY, hex, big){
+    if(flyingStars.length>=FLYSTAR_CAP) return;
     // launches a 4-point star that arcs from the hit point into the core
     flyingStars.push({ sx:fromX, sy:fromY, x:fromX, y:fromY,
       t:0, dur:0.5+Math.random()*0.16, hex:hex, big:!!big,
       spin:Math.random()*6.28, spinV:(Math.random()*2-1)*0.4 });
   }
-  // draw a sharp N-point star at (x,y)
+  // draw a sharp N-point star at (x,y)  — used only for the few BIG singular elements
+  // (the core heart) where the count is tiny. The many flying/satellite stars use the
+  // cached sprite below instead, because per-shape shadowBlur was tanking FPS during novas.
   function drawStar(x,y,rOuter,rInner,points,rot,hex,alpha,glow){
     ctx.save();
     ctx.translate(x,y); ctx.rotate(rot);
@@ -1850,14 +1855,22 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     ctx.fill(); ctx.shadowBlur=0; ctx.globalAlpha=1;
     ctx.restore();
   }
-  // the core's colour shifts through a warm rainbow as it gathers stars (1C)
+
+  // (Star glow is drawn directly; a sprite-cache experiment was removed after profiling
+  // showed drawImage was no faster than shadowBlur on this canvas — the real mobile cost
+  // is large additive-blend overdraw, addressed by capping aura/nova sizes below.)
+
+  // the core's colour shifts through a warm rainbow as it gathers stars (1C).
+  // QUANTIZED to 12 steps so the sprite cache reuses a small fixed set of colours
+  // (a fresh hsl() every frame would defeat the sprite cache and re-tank FPS).
   function chargeHue(charge){
     var hues=[190, 165, 90, 50, 25, 320, 280];   // cyan->teal->green->gold->orange->pink->violet
     var f=Math.min(0.999, charge/40);             // full rainbow by ~40 stars (run-long accumulation)
+    f=Math.round(f*12)/12;                        // snap to 12 buckets -> stable colour strings
     var idx=f*(hues.length-1);
     var i0=Math.floor(idx), i1=Math.min(hues.length-1,i0+1), fr=idx-i0;
-    var h=hues[i0]+(hues[i1]-hues[i0])*fr;
-    return "hsl("+h.toFixed(0)+",90%,62%)";
+    var h=Math.round(hues[i0]+(hues[i1]-hues[i0])*fr);
+    return "hsl("+h+",90%,62%)";
   }
 
   /* ---------- v10 discrete level transition ---------- */
@@ -2389,10 +2402,12 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         novaBonusShown = e.bonus||0;
         coreCharge = Math.max(0, coreCharge*0.25);    // dip, not zero (visible release but core stays grown)
         addKick(18);                                  // a real screen-shake thump on the blast
-        // scatter burst sized by how many stars were collected (big, celebratory)
-        var nStars = Math.min(46, 12 + (e.stars||0)*1.4);
+        // scatter burst sized by how many stars were collected (celebratory but bounded;
+        // sprites are cheap, but keep the count sane so even low-end phones stay smooth)
+        var nStars = Math.min(28, 10 + (e.stars||0));
         var novaHex = chargeHue(coreChargeRunDisp);   // explode in the colour it has reached
         for(var b=0;b<nStars;b++){
+          if(flyingStars.length>=FLYSTAR_CAP) break;
           var ang=Math.random()*6.28, spd=6+Math.random()*9;
           flyingStars.push({ sx:CX, sy:CY, x:CX, y:CY, t:0, dur:0.7+Math.random()*0.4,
             vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, outward:true,
@@ -2481,32 +2496,36 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     var lvlC = coreChargeDisp;           // eased per-level charge -> nova size hint
     var coreHex = chargeHue(runC);       // always tinted by run progress (visible from the 1st star)
     var grown = Math.min(40, 6 + runC*1.7);                // grows across the run, capped
-    var coreR = grown + pulse*3 + coreFeedPulse*6 + novaPop*46;
-    // outer aura that intensifies as the core charges (gets prettier the more you feed it)
-    var auraA = 0.12 + Math.min(0.40, runC*0.02) + novaPop*0.45;
-    var aura=ctx.createRadialGradient(CX,CY,0,CX,CY,coreR*3.4);
+    // nova inflation kept modest: a giant coreR made the aura/shadowBlur cover a huge area
+    // additively every nova frame, which is what dropped frames on the phone ("slideshow").
+    var coreR = grown + pulse*3 + coreFeedPulse*6 + novaPop*22;
+    // outer aura — radius capped so peak overdraw area stays bounded (was coreR*3.4 with a
+    // ballooning coreR => ~290px additive fill per nova frame).
+    var auraR = Math.min(150, coreR*2.6);
+    var auraA = 0.12 + Math.min(0.36, runC*0.02) + novaPop*0.35;
+    var aura=ctx.createRadialGradient(CX,CY,0,CX,CY,auraR);
     aura.addColorStop(0, coreHex);
     aura.addColorStop(0.5,"rgba(0,0,0,0)");
     aura.addColorStop(1,"rgba(0,0,0,0)");
     ctx.globalAlpha=auraA; ctx.fillStyle=aura;
-    ctx.beginPath(); ctx.arc(CX,CY,coreR*3.4,0,7); ctx.fill(); ctx.globalAlpha=1;
-    // the core body (glowing orb)
+    ctx.beginPath(); ctx.arc(CX,CY,auraR,0,7); ctx.fill(); ctx.globalAlpha=1;
+    // the core body (glowing orb) — shadowBlur capped (a 76px blur on a big arc each nova
+    // frame was very expensive; 28 looks the same at this scale).
     ctx.beginPath(); ctx.arc(CX,CY,coreR,0,7);
     ctx.fillStyle=coreHex; ctx.globalAlpha=0.5+pulse*0.28+coreFeedPulse*0.3;
-    ctx.shadowBlur=16+runC*2+novaPop*60; ctx.shadowColor=coreHex; ctx.fill();
+    ctx.shadowBlur=Math.min(28, 16+runC*1.2); ctx.shadowColor=coreHex; ctx.fill();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
     // a big bright STAR sits at the heart from the very start, growing with the core (1A).
-    // White-hot center so it always reads as a star, not a dot.
-    var heartR = Math.min(30, 7 + runC*1.2) + coreFeedPulse*4 + novaPop*30;
-    drawStar(CX,CY, heartR, heartR*0.42, 4, (G.t||0)*0.5, coreHex, 0.85, 18);
-    drawStar(CX,CY, heartR*0.6, heartR*0.24, 4, -(G.t||0)*0.7, "#ffffff", 0.9, 12);
-    // a ring of "satellite" stars that grows as the run goes on (extra prettiness)
+    var heartR = Math.min(28, 7 + runC*1.2) + coreFeedPulse*4 + novaPop*16;
+    drawStar(CX,CY, heartR, heartR*0.42, 4, (G.t||0)*0.5, coreHex, 0.85, 12);
+    drawStar(CX,CY, heartR*0.6, heartR*0.24, 4, -(G.t||0)*0.7, "#ffffff", 0.9, 0);
+    // a ring of "satellite" stars that grows as the run goes on (extra prettiness).
     if(runC>2){
-      var sats=Math.min(12, 2+Math.floor(runC/2));
+      var sats=Math.min(10, 2+Math.floor(runC/2));
       for(var sI=0;sI<sats;sI++){
         var sa=(G.t||0)*0.6 + sI*(6.283/sats);
         var sr=coreR+12+Math.sin((G.t||0)*2+sI)*4;
-        drawStar(CX+Math.cos(sa)*sr, CY+Math.sin(sa)*sr, 4,1.7,4, sa, coreHex, 0.6, 8);
+        drawStar(CX+Math.cos(sa)*sr, CY+Math.sin(sa)*sr, 4.5,1.9,4, sa, coreHex, 0.6, 0);
       }
     }
 
