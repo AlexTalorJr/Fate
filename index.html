@@ -369,7 +369,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v19</div>
+    <div class="verBanner">PHASE · v20</div>
   </div>
 
   <!-- DECODE -->
@@ -454,12 +454,18 @@ var PhaseCore = (function(){
   var CFG = {
     RMIN:0,            // ring starts at center
     RPAD:30,           // node ring sits this far inside the edge
-    BEAT:1.05, BEAT_FLOOR:0.62, BEAT_STEP:0.035,   // seconds per ring pass
-    WINDOW:28, WINDOW_FLOOR:15, WINDOW_STEP:0.9,    // px tolerance |r - nodeR|
+    // TEMPO RAMP — flattened hard after playtest: "начинается норм, потом раз — бешеный
+    // темп, больше минуты нереально". The old curve nearly doubled ring speed AND halved
+    // the timing window by ~L13, stacking a 3rd node + twins on top — an unplayable wall
+    // for a casual/young player. Now the per-level steps are ~3x smaller and the floors are
+    // gentler, so difficulty rises slowly over ~40 levels and never reaches "insane". A
+    // skilled player still ramps, just far later; the leaderboard bots live up there fine.
+    BEAT:1.10, BEAT_FLOOR:0.74, BEAT_STEP:0.011,   // seconds per ring pass (was 1.05/0.62/0.035)
+    WINDOW:30, WINDOW_FLOOR:19, WINDOW_STEP:0.32,   // px tolerance |r - nodeR| (was 28/15/0.9)
     CRIT_FRAC:0.34,    // inner fraction of window that counts as PERFECT
     NODE_R:16,
     GRACE:0.16,
-    NODE_LIFE:5.4, NODE_LIFE_FLOOR:2.9,             // seconds before a node decoheres
+    NODE_LIFE:6.0, NODE_LIFE_FLOOR:3.6,             // seconds before a node decoheres (was 5.4/2.9)
     SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts (legacy)
     MAX_NODES:3,                                    // HARD cap — anti-cacophony
     TARGET_NODES:2, TARGET_NODES_FLOOR:2,           // keep ~this many on screen (≤ MAX_NODES)
@@ -469,7 +475,10 @@ var PhaseCore = (function(){
     CHAIN_HOLD:3.2, CHAIN_HOLD_FLOOR:1.9,           // seconds before chain decays a step
     SCORE_BASE:100, CRIT_MULT:3, PURE_MULT:1.5,
     H_MAX:1.0, H_HIT:0.14, H_MISTAP:0.045,
-    H_LOCK:0.012, H_REGEN:0.004,                    // per-event / per-second
+    H_LOCK:0.022, H_REGEN:0.010,                    // per-event / per-second — healing bumped up
+                                                    // (playtest: "восстанавливать здоровье быстрее");
+                                                    // a clean run now refills health, so a player
+                                                    // who's landing hits stays healthy and survives.
     // ---- v8 DEPTH LAYER (turns the reflex into a decision; core idea untouched) ----
     // (b) RISK/REWARD — "greedy" lock: ride the ring PAST dead-centre, out to the
     // trailing edge of the window, for up to +GREEDY_GAIN extra score. The reward
@@ -482,7 +491,7 @@ var PhaseCore = (function(){
     CHARGE_CHANCE:0.17, CHARGE_MULT:2, CHARGE_LIFE:0.62,
     // (c) SKILL GROWTH — twin nodes: need TWO locks on two separate ring passes.
     // Appear from TWIN_LEVEL, so the action at 50s (juggling twins) ≠ 5s (single taps).
-    TWIN_LEVEL:3, TWIN_CHANCE:0.24, TWIN_BONUS:2.2,
+    TWIN_LEVEL:8, TWIN_CHANCE:0.24, TWIN_BONUS:2.2,
     // (d) SURPRISE — surge node (rare ✦): locking it flips the rules for a few seconds
     // — beat tightens, all score ×2. Big upside, but the faster ring can shatter your chain.
     SURGE_LEVEL:2, SURGE_CHANCE:0.05, SURGE_DUR:4.5, SURGE_SCORE_MULT:2, SURGE_BEAT_MULT:0.8,
@@ -692,7 +701,7 @@ var PhaseCore = (function(){
   }
   // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
   function targetNodes(s){
-    var t = CFG.TARGET_NODES + Math.floor((s.level-1)/4); // 2 early, 3 from level 5+
+    var t = CFG.TARGET_NODES + Math.floor((s.level-1)/9); // 2 early, 3 only from ~level 10 (was /4 => L5)
     return Math.min(CFG.MAX_NODES, Math.max(CFG.TARGET_NODES_FLOOR, t));
   }
   // a node's individual orbit radius in px (nodes with rFrac sit inside the edge)
@@ -759,7 +768,11 @@ var PhaseCore = (function(){
     }
     var surgeLvl  = upHas(s,"f1") ? 1 : CFG.SURGE_LEVEL;
     var surgeChc  = CFG.SURGE_CHANCE * (upHas(s,"f1") ? 1.5 : 1);
-    var twinLvl   = upHas(s,"t1") ? 1 : CFG.TWIN_LEVEL;
+    // twins unlock at L8 by default (kept late so the early game stays simple single-taps).
+    // BUT if the player has invested in the twin tree (t1..t7), twins arrive much earlier —
+    // they bought into that mechanic, so surface it (t1 = level 1, other twin upgrades = L3).
+    var anyTwinUp = upHas(s,"t1")||upHas(s,"t2")||upHas(s,"t3")||upHas(s,"t4")||upHas(s,"t5")||upHas(s,"t6")||upHas(s,"t7");
+    var twinLvl   = upHas(s,"t1") ? 1 : (anyTwinUp ? 3 : CFG.TWIN_LEVEL);
     var twinChc   = CFG.TWIN_CHANCE * (upHas(s,"t1") ? 1.2 : 1);
     var chargeChc = CFG.CHARGE_CHANCE * (upHas(s,"t2") ? 1.5 : 1);
     var chargeLife= CFG.CHARGE_LIFE * (upHas(s,"t2") ? 1.25 : 1);
@@ -1762,6 +1775,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   function updateFlyingStars(){
     for(var i=flyingStars.length-1;i>=0;i--){
       var st=flyingStars[i];
+      st.px=st.x; st.py=st.y;                 // remember last pos for the motion trail
       st.t += 1/60;
       st.spin += st.spinV;
       var f=st.t/st.dur;
@@ -1772,7 +1786,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         var e=f*f*(3-2*f);                      // smoothstep ease toward the core
         st.x = st.sx + (CX-st.sx)*e;
         st.y = st.sy + (CY-st.sy)*e;
-        if(f>=1){ coreCharge += 1; coreFeedPulse = 1; flyingStars.splice(i,1); continue; }
+        if(f>=1){ coreCharge += 1; coreChargeRun += 1; coreFeedPulse = 1; flyingStars.splice(i,1); continue; }
       }
     }
   }
@@ -1781,9 +1795,19 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     for(var i=0;i<flyingStars.length;i++){
       var st=flyingStars[i];
       var f=st.t/st.dur;
-      var a = st.outward ? Math.max(0,1-f) : (0.6+0.4*f);
-      var sz = (st.big?5.5:3.8) * (st.outward ? (0.7+f*0.6) : (0.6+f*0.7));
-      drawStar(st.x, st.y, sz, sz*0.45, 4, st.spin, st.hex, a, st.big?14:8);
+      var a = st.outward ? Math.max(0,1-f) : (0.65+0.35*f);
+      // BIG and obviously star-shaped (the 10y-o read them as dots before). A soft
+      // glowing trail behind the travel direction sells the "shooting star" motion.
+      var sz = (st.big?13:9) * (st.outward ? (0.8+f*0.5) : (0.7+f*0.6));
+      var dx=st.x-(st.px!=null?st.px:st.x), dy=st.y-(st.py!=null?st.py:st.y);
+      var tl=Math.sqrt(dx*dx+dy*dy);
+      if(tl>0.5){
+        ctx.strokeStyle=st.hex; ctx.globalAlpha=a*0.4; ctx.lineWidth=sz*0.5; ctx.lineCap="round";
+        ctx.beginPath(); ctx.moveTo(st.x-dx*3, st.y-dy*3); ctx.lineTo(st.x,st.y); ctx.stroke();
+      }
+      drawStar(st.x, st.y, sz, sz*0.42, 4, st.spin, st.hex, a, st.big?22:16);
+      // a white-hot core sparkle inside each star
+      drawStar(st.x, st.y, sz*0.5, sz*0.2, 4, st.spin, "#ffffff", a*0.85, 8);
     }
     ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
   }
@@ -1796,15 +1820,17 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
      GROWS + RECOLOURS as it feeds, then DETONATES on level-up scattering them + bonus).
      Big, obvious, cause-and-effect feedback — what a 10y-o actually reads. ---------- */
   var flyingStars=[];        // {x,y,vx,vy, sx,sy, t, dur, hex, big} animating node -> core
-  var coreCharge=0;          // smoothed count of stars currently fed into the core (resets on level-up)
+  var coreCharge=0;          // stars fed since last nova (drives the per-level bloom; dips on nova, not zeroed)
+  var coreChargeRun=0;       // stars fed this whole run (HYBRID: core keeps getting prettier across the run)
   var coreChargeDisp=0;      // eased display value (so growth/recolour is smooth, not steppy)
+  var coreChargeRunDisp=0;   // eased run-long charge display (lasting size/colour)
   var novaPop=0;             // 0..1 nova flash on level-up (the explosion)
   var novaBonusShown=0;      // bonus points to float up on the last nova
   var novaStars=0;           // how many stars detonated (drives explosion size)
   function spawnFlyingStar(fromX, fromY, hex, big){
     // launches a 4-point star that arcs from the hit point into the core
     flyingStars.push({ sx:fromX, sy:fromY, x:fromX, y:fromY,
-      t:0, dur:0.34+Math.random()*0.12, hex:hex, big:!!big,
+      t:0, dur:0.5+Math.random()*0.16, hex:hex, big:!!big,
       spin:Math.random()*6.28, spinV:(Math.random()*2-1)*0.4 });
   }
   // draw a sharp N-point star at (x,y)
@@ -1827,7 +1853,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   // the core's colour shifts through a warm rainbow as it gathers stars (1C)
   function chargeHue(charge){
     var hues=[190, 165, 90, 50, 25, 320, 280];   // cyan->teal->green->gold->orange->pink->violet
-    var f=Math.min(0.999, charge/14);             // full rainbow by ~14 stars
+    var f=Math.min(0.999, charge/40);             // full rainbow by ~40 stars (run-long accumulation)
     var idx=f*(hues.length-1);
     var i0=Math.floor(idx), i1=Math.min(hues.length-1,i0+1), fr=idx-i0;
     var h=hues[i0]+(hues[i1]-hues[i0])*fr;
@@ -2140,7 +2166,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     G.nodeR = edgeR - C.CFG.RPAD;
     parts.length=0; shocks.length=0; kick=0; scoreShown=0;
     lvlFlash=0; lvlFlashLevel=1; phaseBand=0;
-    flyingStars.length=0; coreCharge=0; coreChargeDisp=0; coreFeedPulse=0; novaPop=0; novaBonusShown=0; novaStars=0;
+    flyingStars.length=0; coreCharge=0; coreChargeRun=0; coreChargeDisp=0; coreChargeRunDisp=0; coreFeedPulse=0; novaPop=0; novaBonusShown=0; novaStars=0;
     tut.on = withTutorial && !taught;
     tut.step=0; tut.hold=0;
     prevRunScore=0; rivalTarget=null; rankFlashT=0;
@@ -2355,25 +2381,29 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       else if(e.type==="levelup"){
         // discrete transition moment
         lvlFlash = 1; lvlFlashLevel = e.level;
-        // STAR NOVA: the core detonates, scattering the stars it gathered + a bonus.
+        // STAR NOVA: the core detonates, scattering the gathered stars + a bonus. HYBRID:
+        // only the per-level charge dips (so the blast feels like a release); the run-long
+        // charge persists, so the core stays big/colourful and keeps growing all run.
         novaPop = 1;
         novaStars = e.stars||0;
         novaBonusShown = e.bonus||0;
-        coreCharge = 0;                         // core resets small after the blast
+        coreCharge = Math.max(0, coreCharge*0.25);    // dip, not zero (visible release but core stays grown)
+        addKick(18);                                  // a real screen-shake thump on the blast
         // scatter burst sized by how many stars were collected (big, celebratory)
-        var nStars = Math.min(34, 8 + (e.stars||0));
-        var novaHex = chargeHue(coreChargeDisp); // explode in the colour it had reached
+        var nStars = Math.min(46, 12 + (e.stars||0)*1.4);
+        var novaHex = chargeHue(coreChargeRunDisp);   // explode in the colour it has reached
         for(var b=0;b<nStars;b++){
-          var ang=Math.random()*6.28, spd=5+Math.random()*7;
-          flyingStars.push({ sx:CX, sy:CY, x:CX, y:CY, t:0, dur:0.6+Math.random()*0.3,
+          var ang=Math.random()*6.28, spd=6+Math.random()*9;
+          flyingStars.push({ sx:CX, sy:CY, x:CX, y:CY, t:0, dur:0.7+Math.random()*0.4,
             vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, outward:true,
             hex:(Math.random()<0.5?novaHex:["#39e6ff","#ff4fd8","#ffc24b","#9b7bff"][b%4]),
-            big:Math.random()<0.4, spin:Math.random()*6.28, spinV:(Math.random()*2-1)*0.5 });
+            big:Math.random()<0.5, spin:Math.random()*6.28, spinV:(Math.random()*2-1)*0.6 });
         }
-        burst(CX,CY,novaHex,18,9,true);
+        burst(CX,CY,novaHex,26,11,true);
+        shock(novaHex);
         if(e.bonus>0) showToast("✦ +"+e.bonus, "#ffd24a");
         else showToast("LEVEL "+e.level, "#9b7bff");
-        addKick(10); shock("#ffd24a"); shock("#9b7bff");
+        shock("#ffd24a"); shock("#9b7bff");
         var newBand = Math.floor((e.level-1)/10);
         if(newBand !== phaseBand){
           // crossing into a new "phase band" every 10 levels = bigger moment + vibe shift
@@ -2425,7 +2455,8 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     if(lvlFlash>0){ lvlFlash -= 0.02; if(lvlFlash<0) lvlFlash=0; }
     if(novaPop>0){ novaPop -= 0.03; if(novaPop<0) novaPop=0; }
     if(coreFeedPulse>0){ coreFeedPulse -= 0.08; if(coreFeedPulse<0) coreFeedPulse=0; }
-    coreChargeDisp += (coreCharge - coreChargeDisp)*0.18;   // eased growth/shrink of the core
+    coreChargeDisp += (coreCharge - coreChargeDisp)*0.18;   // eased per-level charge (nova hint)
+    coreChargeRunDisp += (coreChargeRun - coreChargeRunDisp)*0.12;  // eased run-long charge (lasting beauty)
     updateFlyingStars();
     ctx.save();
     ctx.translate(kx,ky);
@@ -2441,42 +2472,41 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     // center core (pulses on beat) — kept SMALL & quiet on purpose: the action is
     // out on the orbit, so the center must not be the loudest thing on screen.
     // Its colour reflects the player's unlocked THEME (cosmetic progression).
-    // center core — it FEEDS on the stars flying into it: it GROWS and shifts colour
-    // through a warm rainbow as the level's stars accumulate, pops on each feed, and
-    // flashes huge on the level-up nova. This is the daughter's idea and the main
-    // "my hits visibly build something beautiful" feedback. Resets small after each nova.
+    // center core — it FEEDS on the stars flying into it. HYBRID model: the core keeps
+    // getting bigger / more colourful / more star-crowded across the WHOLE run (coreChargeRun),
+    // AND each level-up still detonates a big nova for points. So a child both watches it
+    // grow into a beautiful rainbow star over time and gets the satisfying blast every level.
     var pulse = 1 - G.beatPhase;
-    var charge = coreChargeDisp;
-    var coreHex = charge>0.3 ? chargeHue(charge) : themeCore();
-    var grown = Math.min(34, 5 + charge*2.2);              // grows with stars, capped
-    var coreR = grown + pulse*3 + coreFeedPulse*5 + novaPop*40;
+    var runC = coreChargeRunDisp;        // eased run-long charge -> lasting beauty
+    var lvlC = coreChargeDisp;           // eased per-level charge -> nova size hint
+    var coreHex = chargeHue(runC);       // always tinted by run progress (visible from the 1st star)
+    var grown = Math.min(40, 6 + runC*1.7);                // grows across the run, capped
+    var coreR = grown + pulse*3 + coreFeedPulse*6 + novaPop*46;
     // outer aura that intensifies as the core charges (gets prettier the more you feed it)
-    if(charge>0.5){
-      var aura=ctx.createRadialGradient(CX,CY,0,CX,CY,coreR*3.2);
-      aura.addColorStop(0, coreHex);
-      aura.addColorStop(0.5,"rgba(0,0,0,0)");
-      aura.addColorStop(1,"rgba(0,0,0,0)");
-      ctx.globalAlpha=0.10+Math.min(0.32,charge*0.03)+novaPop*0.4;
-      ctx.fillStyle=aura;
-      ctx.beginPath(); ctx.arc(CX,CY,coreR*3.2,0,7); ctx.fill(); ctx.globalAlpha=1;
-    }
-    // the core body
+    var auraA = 0.12 + Math.min(0.40, runC*0.02) + novaPop*0.45;
+    var aura=ctx.createRadialGradient(CX,CY,0,CX,CY,coreR*3.4);
+    aura.addColorStop(0, coreHex);
+    aura.addColorStop(0.5,"rgba(0,0,0,0)");
+    aura.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.globalAlpha=auraA; ctx.fillStyle=aura;
+    ctx.beginPath(); ctx.arc(CX,CY,coreR*3.4,0,7); ctx.fill(); ctx.globalAlpha=1;
+    // the core body (glowing orb)
     ctx.beginPath(); ctx.arc(CX,CY,coreR,0,7);
-    ctx.fillStyle=coreHex; ctx.globalAlpha=0.45+pulse*0.3+coreFeedPulse*0.3;
-    ctx.shadowBlur=14+charge*2.5+novaPop*50; ctx.shadowColor=coreHex; ctx.fill();
+    ctx.fillStyle=coreHex; ctx.globalAlpha=0.5+pulse*0.28+coreFeedPulse*0.3;
+    ctx.shadowBlur=16+runC*2+novaPop*60; ctx.shadowColor=coreHex; ctx.fill();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
-    // a bright star sits at the heart once it's charged, growing with the core (1A read)
-    if(charge>1){
-      drawStar(CX,CY, Math.min(20, 3+charge*1.4), Math.min(9,1.5+charge*0.6), 4,
-               (G.t||0)*0.6, "#ffffff", 0.5+coreFeedPulse*0.4, 12);
-    }
-    // a soft ring of "satellite" sparkles when well-fed (extra prettiness, no clutter)
-    if(charge>3){
-      var sats=Math.min(8, Math.floor(charge/2));
+    // a big bright STAR sits at the heart from the very start, growing with the core (1A).
+    // White-hot center so it always reads as a star, not a dot.
+    var heartR = Math.min(30, 7 + runC*1.2) + coreFeedPulse*4 + novaPop*30;
+    drawStar(CX,CY, heartR, heartR*0.42, 4, (G.t||0)*0.5, coreHex, 0.85, 18);
+    drawStar(CX,CY, heartR*0.6, heartR*0.24, 4, -(G.t||0)*0.7, "#ffffff", 0.9, 12);
+    // a ring of "satellite" stars that grows as the run goes on (extra prettiness)
+    if(runC>2){
+      var sats=Math.min(12, 2+Math.floor(runC/2));
       for(var sI=0;sI<sats;sI++){
-        var sa=(G.t||0)*0.8 + sI*(6.283/sats);
-        var sr=coreR+10+Math.sin((G.t||0)*2+sI)*3;
-        drawStar(CX+Math.cos(sa)*sr, CY+Math.sin(sa)*sr, 2.6,1.1,4, sa, coreHex, 0.5, 6);
+        var sa=(G.t||0)*0.6 + sI*(6.283/sats);
+        var sr=coreR+12+Math.sin((G.t||0)*2+sI)*4;
+        drawStar(CX+Math.cos(sa)*sr, CY+Math.sin(sa)*sr, 4,1.7,4, sa, coreHex, 0.6, 8);
       }
     }
 

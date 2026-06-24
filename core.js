@@ -3,12 +3,18 @@ var PhaseCore = (function(){
   var CFG = {
     RMIN:0,            // ring starts at center
     RPAD:30,           // node ring sits this far inside the edge
-    BEAT:1.05, BEAT_FLOOR:0.62, BEAT_STEP:0.035,   // seconds per ring pass
-    WINDOW:28, WINDOW_FLOOR:15, WINDOW_STEP:0.9,    // px tolerance |r - nodeR|
+    // TEMPO RAMP — flattened hard after playtest: "начинается норм, потом раз — бешеный
+    // темп, больше минуты нереально". The old curve nearly doubled ring speed AND halved
+    // the timing window by ~L13, stacking a 3rd node + twins on top — an unplayable wall
+    // for a casual/young player. Now the per-level steps are ~3x smaller and the floors are
+    // gentler, so difficulty rises slowly over ~40 levels and never reaches "insane". A
+    // skilled player still ramps, just far later; the leaderboard bots live up there fine.
+    BEAT:1.10, BEAT_FLOOR:0.74, BEAT_STEP:0.011,   // seconds per ring pass (was 1.05/0.62/0.035)
+    WINDOW:30, WINDOW_FLOOR:19, WINDOW_STEP:0.32,   // px tolerance |r - nodeR| (was 28/15/0.9)
     CRIT_FRAC:0.34,    // inner fraction of window that counts as PERFECT
     NODE_R:16,
     GRACE:0.16,
-    NODE_LIFE:5.4, NODE_LIFE_FLOOR:2.9,             // seconds before a node decoheres
+    NODE_LIFE:6.0, NODE_LIFE_FLOOR:3.6,             // seconds before a node decoheres (was 5.4/2.9)
     SPAWN:1.55, SPAWN_FLOOR:0.78,                   // seconds between spawn attempts (legacy)
     MAX_NODES:3,                                    // HARD cap — anti-cacophony
     TARGET_NODES:2, TARGET_NODES_FLOOR:2,           // keep ~this many on screen (≤ MAX_NODES)
@@ -18,7 +24,10 @@ var PhaseCore = (function(){
     CHAIN_HOLD:3.2, CHAIN_HOLD_FLOOR:1.9,           // seconds before chain decays a step
     SCORE_BASE:100, CRIT_MULT:3, PURE_MULT:1.5,
     H_MAX:1.0, H_HIT:0.14, H_MISTAP:0.045,
-    H_LOCK:0.012, H_REGEN:0.004,                    // per-event / per-second
+    H_LOCK:0.022, H_REGEN:0.010,                    // per-event / per-second — healing bumped up
+                                                    // (playtest: "восстанавливать здоровье быстрее");
+                                                    // a clean run now refills health, so a player
+                                                    // who's landing hits stays healthy and survives.
     // ---- v8 DEPTH LAYER (turns the reflex into a decision; core idea untouched) ----
     // (b) RISK/REWARD — "greedy" lock: ride the ring PAST dead-centre, out to the
     // trailing edge of the window, for up to +GREEDY_GAIN extra score. The reward
@@ -31,7 +40,7 @@ var PhaseCore = (function(){
     CHARGE_CHANCE:0.17, CHARGE_MULT:2, CHARGE_LIFE:0.62,
     // (c) SKILL GROWTH — twin nodes: need TWO locks on two separate ring passes.
     // Appear from TWIN_LEVEL, so the action at 50s (juggling twins) ≠ 5s (single taps).
-    TWIN_LEVEL:3, TWIN_CHANCE:0.24, TWIN_BONUS:2.2,
+    TWIN_LEVEL:8, TWIN_CHANCE:0.24, TWIN_BONUS:2.2,
     // (d) SURPRISE — surge node (rare ✦): locking it flips the rules for a few seconds
     // — beat tightens, all score ×2. Big upside, but the faster ring can shatter your chain.
     SURGE_LEVEL:2, SURGE_CHANCE:0.05, SURGE_DUR:4.5, SURGE_SCORE_MULT:2, SURGE_BEAT_MULT:0.8,
@@ -241,7 +250,7 @@ var PhaseCore = (function(){
   }
   // how many nodes we WANT on screen now (grows slightly with level, capped < MAX_NODES+1)
   function targetNodes(s){
-    var t = CFG.TARGET_NODES + Math.floor((s.level-1)/4); // 2 early, 3 from level 5+
+    var t = CFG.TARGET_NODES + Math.floor((s.level-1)/9); // 2 early, 3 only from ~level 10 (was /4 => L5)
     return Math.min(CFG.MAX_NODES, Math.max(CFG.TARGET_NODES_FLOOR, t));
   }
   // a node's individual orbit radius in px (nodes with rFrac sit inside the edge)
@@ -308,7 +317,11 @@ var PhaseCore = (function(){
     }
     var surgeLvl  = upHas(s,"f1") ? 1 : CFG.SURGE_LEVEL;
     var surgeChc  = CFG.SURGE_CHANCE * (upHas(s,"f1") ? 1.5 : 1);
-    var twinLvl   = upHas(s,"t1") ? 1 : CFG.TWIN_LEVEL;
+    // twins unlock at L8 by default (kept late so the early game stays simple single-taps).
+    // BUT if the player has invested in the twin tree (t1..t7), twins arrive much earlier —
+    // they bought into that mechanic, so surface it (t1 = level 1, other twin upgrades = L3).
+    var anyTwinUp = upHas(s,"t1")||upHas(s,"t2")||upHas(s,"t3")||upHas(s,"t4")||upHas(s,"t5")||upHas(s,"t6")||upHas(s,"t7");
+    var twinLvl   = upHas(s,"t1") ? 1 : (anyTwinUp ? 3 : CFG.TWIN_LEVEL);
     var twinChc   = CFG.TWIN_CHANCE * (upHas(s,"t1") ? 1.2 : 1);
     var chargeChc = CFG.CHARGE_CHANCE * (upHas(s,"t2") ? 1.5 : 1);
     var chargeLife= CFG.CHARGE_LIFE * (upHas(s,"t2") ? 1.25 : 1);
