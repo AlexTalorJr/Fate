@@ -23,22 +23,23 @@
   /* HUD */
   #hud{position:absolute;inset:0;pointer-events:none;}
   .corner{position:absolute;font-variant-numeric:tabular-nums;letter-spacing:.04em;}
-  #scoreWrap{top:calc(18px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);text-align:center;}
-  #score{font-size:clamp(34px,7vw,58px);font-weight:200;line-height:1;
+  #scoreWrap{top:calc(34px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);text-align:center;}
+  #score{font-size:clamp(30px,6.2vw,54px);font-weight:200;line-height:1.15;padding-top:2px;
     text-shadow:0 0 24px rgba(57,230,255,.35);}
   #lvl{margin-top:4px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.28em;}
 
-  #chainWrap{top:22px;right:20px;text-align:right;opacity:0;transition:opacity .2s;}
+  #chainWrap{top:calc(40px + env(safe-area-inset-top));right:20px;text-align:right;opacity:0;transition:opacity .2s;}
   #chainNum{font-size:clamp(20px,4.5vw,30px);font-weight:300;}
   #chainBar{height:3px;margin-top:5px;background:var(--cyan);border-radius:2px;
     transform-origin:right center;box-shadow:0 0 10px var(--cyan);}
 
-  #bestWrap{top:24px;left:20px;font-size:11px;color:var(--dim);
+  #bestWrap{top:calc(42px + env(safe-area-inset-top));left:20px;font-size:11px;color:var(--dim);
     text-transform:uppercase;letter-spacing:.18em;line-height:1.7;}
   #bestWrap b{color:#8fb4d8;font-weight:500;}
 
-  /* health: thin top bar */
-  #hpTrack{position:absolute;top:0;left:0;width:100%;height:3px;background:rgba(120,150,200,.08);}
+  /* health: now drawn as a bold arc on the outer game circle (see canvas) — old thin
+     top bar hidden to avoid a redundant/competing indicator */
+  #hpTrack{display:none;position:absolute;top:0;left:0;width:100%;height:3px;background:rgba(120,150,200,.08);}
   #hpFill{height:100%;width:100%;transform-origin:left center;
     background:linear-gradient(90deg,var(--magenta),var(--cyan));
     transition:transform .12s linear, background .3s;}
@@ -369,7 +370,7 @@
       <div class="boardHead">ЛУЧШИЕ ФАЗЕРЫ СЕГОДНЯ</div>
       <div id="startBoardList"></div>
     </div>
-    <div class="verBanner">PHASE · v21</div>
+    <div class="verBanner">PHASE · v22</div>
   </div>
 
   <!-- DECODE -->
@@ -1817,6 +1818,60 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
   var shocks=[];
   function shock(hex){ if(shocks.length<3) shocks.push({r:edgeR*0.4,a:0.8,hex:hex}); }
 
+  // ---- HAPTICS: vibrate on every tap, with distinct patterns for hit / miss / nova ----
+  // (Android Chrome supports navigator.vibrate; iOS Safari ignores it — harmless no-op.)
+  function vibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
+
+  // ---- HIT / MISS CONFIRMATION ----
+  // The playtester couldn't tell if a tap landed. So every successful lock now throws a
+  // crisp expanding white confirm-ring + a floating "+points" right at the hit, and the
+  // whole screen gives a tiny positive flash; a MISS gives a distinct red flash + ring so
+  // "no, you missed" is just as unmistakable.
+  var scorePops=[];   // {x,y,txt,hex,t,dur,vy}
+  var hitRings=[];    // {x,y,r,maxR,a,hex,wide}
+  var hitFlash=0;     // brief screen-wide positive flash (cyan/gold)
+  var hitFlashHex="#39e6ff";
+  var missFlash=0;    // brief screen-wide negative flash (red)
+  function addScorePop(x,y,txt,hex){ if(scorePops.length<14) scorePops.push({x:x,y:y,txt:txt,hex:hex||"#eaf6ff",t:0,dur:0.85,vy:-0.5}); }
+  function addHitRing(x,y,hex,wide){ if(hitRings.length<16) hitRings.push({x:x,y:y,r:wide?14:8,maxR:wide?64:42,a:0.95,hex:hex||"#ffffff"}); }
+  function confirmHit(x,y,hex,points,big){
+    addHitRing(x,y,"#ffffff",big);                 // white snap-ring = unmistakable "landed!"
+    if(hex) addHitRing(x,y,hex,false);
+    if(points>0) addScorePop(x,y,"+"+points,hex||"#eaf6ff");
+    hitFlash=Math.min(1,(big?0.5:0.3)); hitFlashHex=hex||"#39e6ff";
+    vibrate(big?26:14);                            // stronger buzz on a perfect/charged
+  }
+  function confirmMiss(x,y){
+    addHitRing(x,y,"#ff4a73",false);
+    missFlash=0.55;
+    vibrate([18,40,18]);                           // distinct double-buzz = "missed"
+  }
+  function updateConfirms(){
+    var i;
+    for(i=scorePops.length-1;i>=0;i--){ var p=scorePops[i]; p.t+=1/60; p.y+=p.vy; p.vy*=0.96; if(p.t>=p.dur) scorePops.splice(i,1); }
+    for(i=hitRings.length-1;i>=0;i--){ var r=hitRings[i]; r.r+=(r.maxR-r.r)*0.28; r.a*=0.82; if(r.a<0.04) hitRings.splice(i,1); }
+    if(hitFlash>0){ hitFlash-=0.06; if(hitFlash<0) hitFlash=0; }
+    if(missFlash>0){ missFlash-=0.05; if(missFlash<0) missFlash=0; }
+  }
+  function drawConfirms(){
+    var i;
+    // expanding confirm rings (additive)
+    ctx.globalCompositeOperation="lighter";
+    for(i=0;i<hitRings.length;i++){ var r=hitRings[i];
+      ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,7);
+      ctx.strokeStyle=r.hex; ctx.globalAlpha=r.a; ctx.lineWidth=2.5;
+      ctx.shadowBlur=10; ctx.shadowColor=r.hex; ctx.stroke(); ctx.shadowBlur=0;
+    }
+    ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
+    // floating +score numbers
+    ctx.textAlign="center"; ctx.font="700 18px Segoe UI, sans-serif";
+    for(i=0;i<scorePops.length;i++){ var p=scorePops[i]; var f=p.t/p.dur;
+      ctx.globalAlpha=Math.max(0,1-f); ctx.fillStyle=p.hex;
+      ctx.shadowBlur=8; ctx.shadowColor=p.hex; ctx.fillText(p.txt,p.x,p.y); ctx.shadowBlur=0;
+    }
+    ctx.globalAlpha=1;
+  }
+
   /* ---------- STAR-CORE (daughter's idea: dots become stars, fly to the core, the core
      GROWS + RECOLOURS as it feeds, then DETONATES on level-up scattering them + bonus).
      Big, obvious, cause-and-effect feedback — what a 10y-o actually reads. ---------- */
@@ -2180,6 +2235,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     parts.length=0; shocks.length=0; kick=0; scoreShown=0;
     lvlFlash=0; lvlFlashLevel=1; phaseBand=0;
     flyingStars.length=0; coreCharge=0; coreChargeRun=0; coreChargeDisp=0; coreChargeRunDisp=0; coreFeedPulse=0; novaPop=0; novaBonusShown=0; novaStars=0;
+    scorePops.length=0; hitRings.length=0; hitFlash=0; missFlash=0;
     tut.on = withTutorial && !taught;
     tut.step=0; tut.hold=0;
     prevRunScore=0; rivalTarget=null; rankFlashT=0;
@@ -2371,6 +2427,9 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         // STAR-CORE: every captured dot becomes a star that flies into the core and
         // feeds it (it grows + recolours). The single most visible "my hit did something".
         if(pos){ spawnFlyingStar(pos.x, pos.y, e.charged?GOLD:(e.crit?"#ffffff":TONE_HEX[e.tone]), e.crit||e.charged); }
+        // UNMISTAKABLE HIT CONFIRM: white snap-ring + floating "+points" + buzz right where
+        // the tap landed, so the player always knows "yes, that hit".
+        if(pos){ confirmHit(pos.x, pos.y, fx, e.gained||0, e.crit||e.charged||e.label==="greedy"); }
       }
       else if(e.type==="twinarm"){
         // first lock of a twin: pulse + a hint it needs one more pass
@@ -2381,7 +2440,11 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       }
       else if(e.type==="surgestart"){ /* visual handled via e.surge on the lock */ }
       else if(e.type==="surgeend"){ surgeFlashT=0; surgeSound(false); }
-      else if(e.type==="miss" || e.type==="emptypress"){ addKick(3); tone(120,0.12,"sawtooth",0.12); }
+      else if(e.type==="miss" || e.type==="emptypress"){
+        addKick(3); tone(120,0.12,"sawtooth",0.12);
+        // clear MISS feedback: red flash + ring at the missed node (or center) + double-buzz
+        confirmMiss(pos?pos.x:CX, pos?pos.y:CY);
+      }
       else if(e.type==="emptytap"){
         // tap that hit nothing & nothing was lockable: soft acknowledge, NOT a penalty.
         // a tiny ripple at the center so the input never feels dead/ignored.
@@ -2389,7 +2452,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       }
       else if(e.type==="decohere"){
         if(pos) burst(pos.x,pos.y,"#ff4fd8",10,4,false);
-        addKick(6); thud();
+        addKick(6); thud(); confirmMiss(pos?pos.x:CX, pos?pos.y:CY);
       }
       else if(e.type==="levelup"){
         // discrete transition moment
@@ -2402,6 +2465,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
         novaBonusShown = e.bonus||0;
         coreCharge = Math.max(0, coreCharge*0.25);    // dip, not zero (visible release but core stays grown)
         addKick(18);                                  // a real screen-shake thump on the blast
+        vibrate([30,30,60]);                          // celebratory triple-buzz on level-up nova
         // scatter burst sized by how many stars were collected (celebratory but bounded;
         // sprites are cheap, but keep the count sane so even low-end phones stay smooth)
         var nStars = Math.min(28, 10 + (e.stars||0));
@@ -2473,6 +2537,7 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     coreChargeDisp += (coreCharge - coreChargeDisp)*0.18;   // eased per-level charge (nova hint)
     coreChargeRunDisp += (coreChargeRun - coreChargeRunDisp)*0.12;  // eased run-long charge (lasting beauty)
     updateFlyingStars();
+    updateConfirms();
     ctx.save();
     ctx.translate(kx,ky);
 
@@ -2529,32 +2594,31 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       }
     }
 
-    // ---- HEALTH RING around the core: a clear, central life gauge a young player
-    // can't miss (the old 3px top bar was invisible to the 10y-o playtester). The arc
-    // drains clockwise as health falls; it greens->ambers->reds and, when low, PULSES
-    // with a soft red core glow + screen-edge danger vignette so death is telegraphed,
-    // never sudden. Lives at the center where the eye already is.
+    // ---- HEALTH = a bold ARC along the OUTER game circle (the big ring the player
+    // already stares at). The old central ring drowned in the core's glow on a phone and
+    // wasn't visible. This arc is huge and unmissable: it fills the full circle at 100%,
+    // drains clockwise as health falls, and goes cyan -> amber -> red, pulsing + flaring a
+    // red edge-glow when low so death is clearly telegraphed. Drawn UNDER the moving ring.
     var hp = G.alive ? G.health : 0;
-    var hpR = 32;
+    var hpArcR = edgeR;                                    // trace the playfield boundary
     var danger = hp<0.34 ? (0.34-hp)/0.34 : 0;             // 0..1 how close to death
     var hpHex = hp>0.5 ? "#39e6ff" : (hp>0.28 ? "#ffc24b" : "#ff4a73");
-    // faint full track
-    ctx.beginPath(); ctx.arc(CX,CY,hpR,0,7);
-    ctx.strokeStyle="rgba(120,150,200,0.16)"; ctx.lineWidth=4; ctx.stroke();
-    // filled arc (from top, clockwise)
+    // faint full background track around the whole circle
+    ctx.beginPath(); ctx.arc(CX,CY,hpArcR,0,7);
+    ctx.strokeStyle="rgba(120,150,200,0.10)"; ctx.lineWidth=6; ctx.stroke();
     if(hp>0){
-      var pulseLow = danger>0 ? (0.55+0.45*Math.abs(Math.sin(G.t*7))) : 1;
+      var pulseLow = danger>0 ? (0.6+0.4*Math.abs(Math.sin(G.t*7))) : 1;
       ctx.beginPath();
-      ctx.arc(CX,CY,hpR, -Math.PI/2, -Math.PI/2 + hp*Math.PI*2);
-      ctx.strokeStyle=hpHex; ctx.globalAlpha=pulseLow; ctx.lineWidth=4.5;
+      ctx.arc(CX,CY,hpArcR, -Math.PI/2, -Math.PI/2 + hp*Math.PI*2);   // from top, clockwise
+      ctx.strokeStyle=hpHex; ctx.globalAlpha=0.9*pulseLow; ctx.lineWidth=6;
       ctx.lineCap="round";
-      ctx.shadowBlur=7+danger*18; ctx.shadowColor=hpHex; ctx.stroke();
+      ctx.shadowBlur=10+danger*22; ctx.shadowColor=hpHex; ctx.stroke();
       ctx.shadowBlur=0; ctx.globalAlpha=1; ctx.lineCap="butt";
     }
-    // low-HP red core glow (warning the body is failing)
+    // low-HP red danger glow on the core, so the warning reads even mid-action
     if(danger>0){
-      ctx.beginPath(); ctx.arc(CX,CY, coreR+3+danger*4*Math.abs(Math.sin(G.t*7)),0,7);
-      ctx.fillStyle="#ff4a73"; ctx.globalAlpha=0.18*danger; ctx.fill(); ctx.globalAlpha=1;
+      ctx.beginPath(); ctx.arc(CX,CY, coreR+4+danger*5*Math.abs(Math.sin(G.t*7)),0,7);
+      ctx.fillStyle="#ff4a73"; ctx.globalAlpha=0.16*danger; ctx.fill(); ctx.globalAlpha=1;
     }
 
     // ---- the ONE ring ---- (WIDE, and it visibly turns WHITE-HOT as it nears the node
@@ -2805,6 +2869,21 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
     drawFlyingStars();
     ctx.restore();
     ctx.globalCompositeOperation="source-over";
+
+    // hit/miss confirmation rings + floating +score (drawn in screen space)
+    drawConfirms();
+    // brief screen-wide flashes: positive (cyan/gold) on a hit, red on a miss
+    if(hitFlash>0){
+      ctx.globalCompositeOperation="lighter";
+      ctx.fillStyle=hitFlashHex; ctx.globalAlpha=hitFlash*0.10; ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
+    }
+    if(missFlash>0){
+      var mv=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.25, W/2,H/2,Math.max(W,H)*0.6);
+      mv.addColorStop(0,"rgba(255,40,80,0)");
+      mv.addColorStop(1,"rgba(255,40,80,"+(missFlash*0.5)+")");
+      ctx.fillStyle=mv; ctx.fillRect(0,0,W,H);
+    }
   }
 
   /* ---------- tutorial: WORDLESS visual demo (learn by imitation) ----------
@@ -2941,10 +3020,13 @@ if(typeof module!=="undefined" && module.exports){ module.exports = (module.expo
       return;
     }
     if(clientX==null){ // Space / keyboard -> auto-target best-timed node
+      vibrate(8);
       C.pressSpace(G);
     } else if(IS_TOUCH){
       // MOBILE: the whole screen is one button. A tap ANYWHERE locks the best-timed
       // node (same as Space) — no aiming at small moving circles one-handed.
+      // Light buzz on EVERY tap so the screen always feels responsive (hit/miss add more).
+      vibrate(8);
       C.pressSpace(G);
     } else {
       // DESKTOP (mouse): aimed tap — prefer the node under the cursor, else best-timed.
